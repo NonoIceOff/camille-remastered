@@ -1,0 +1,15 @@
+{
+  "dependencies": {
+    "@discordjs/rest": "^1.7.1",
+    "anime-character-random": "^1.0.14",
+    "axios": "^1.4.0",
+    "canvas": "^2.11.2",
+    "discord.js": "^14.12.1",
+    "fs": "^0.0.1-security",
+    "fuzzyset": "^1.0.7",
+    "got": "^11.8.2",
+    "jimp": "^0.3.5",
+    "node-fetch": "^2.7.0",
+    "sharp": "^0.32.6"
+  }
+}

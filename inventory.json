@@ -1,0 +1,19 @@
+{
+  "inventory": {
+    "229708607287984129": {
+      "poissons": {
+        "🦀 Crabe": 1,
+        "🐚 Coquillage": 3,
+        "🦞 Homard": 2,
+        "🐟 Poisson rouge": 1
+      },
+      "cartes": {
+        "Hinata, Shouyou": 1,
+        "Samejima, Yumiko": 1,
+        "Splot, Jacuzzi": 1,
+        "Hayakawa, Aki": 1,
+        "Takase, Soujirou": 1
+      }
+    }
+  }
+}

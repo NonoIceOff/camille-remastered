@@ -1,0 +1,16 @@
+{
+    "Lunettes badass": {
+      "price": 150,
+      "description": "Montrez à la société qui est le meilleur.",
+      "emoji": "https://cdn.discordapp.com/emojis/1164917886884790392.png",
+      "type": "item",
+      "rare": 1
+    },
+    "Lunettes badass radieux": {
+      "price": 10000,
+      "description": "Montrez à tous que vous êtes fier financièrement.",
+      "emoji": "https://cdn.discordapp.com/emojis/1164923048382701598.png",
+      "type": "item",
+      "rare": 4
+    }
+}
