@@ -12,7 +12,7 @@ config.js
 
 inventory/
 stats/
-config.js
+./config.js
 
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
