@@ -10,6 +10,9 @@ config.js
 *.userosscache
 *.sln.docstates
 
+inventory/
+stats/
+
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
 
