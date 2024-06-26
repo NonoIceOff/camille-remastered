@@ -34,7 +34,7 @@ module.exports = {
 
             fishPage.forEach(item => {
                 fishEmbed.addFields(
-                    { name: item.name, value: `Prix : ${item.price} pièces d'or`, inline: true }
+                    { name: item.name, value: `${item.price} 💵`, inline: true }
                 );
             });
 
@@ -51,7 +51,7 @@ module.exports = {
 
             treasurePage.forEach(item => {
                 treasureEmbed.addFields(
-                    { name: item.name, value: `Prix : ${item.price} pièces d'or`, inline: true }
+                    { name: item.name, value: `${item.price} 💵`, inline: true }
                 );
             });
 

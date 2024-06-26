@@ -12,6 +12,7 @@ config.js
 
 inventory/
 stats/
+daily_usage/
 ./config.js
 
 # User-specific files (MonoDevelop/Xamarin Studio)

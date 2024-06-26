@@ -35,7 +35,7 @@ module.exports = {
 
         const userCoins = stats.coins || 0;
         if (userCoins < selectedItem.price) {
-            await interaction.reply(`Vous n'avez pas assez de pièces d'or pour acheter "${articleToBuy}".`);
+            await interaction.reply(`Vous n'avez pas assez de 💵 pour acheter "${articleToBuy}".`);
             return;
         }
 
@@ -63,6 +63,6 @@ module.exports = {
 
         fs.writeFileSync(`stats/user_${userId}.json`, JSON.stringify(stats, null, 4), 'utf-8');
 
-        await interaction.reply(`Vous avez acheté "${articleToBuy}" ${selectedItem.emoji} pour ${selectedItem.price} pièces d'or.`);
+        await interaction.reply(`Vous avez acheté "${articleToBuy}" ${selectedItem.emoji} pour ${selectedItem.price} 💵.`);
     },
 };

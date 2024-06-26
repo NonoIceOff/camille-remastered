@@ -4,9 +4,14 @@ const { join } = require("path");
 const { TOKEN, guildId, clientId } = require("./config");
 const fs = require("fs");
 const { EmbedBuilder } = require("discord.js");
+const { scheduleDailyStatsLogging } = require("./coins_graph_saver.js");
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages],
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
+  ],
 });
 
 client.commands = new Map();
@@ -53,6 +58,9 @@ const rest = new REST({ version: "10" }).setToken(TOKEN);
     console.log(
       `Successfully reloaded ${data.length} application (/) commands.`
     );
+    scheduleDailyStatsLogging();
+
+    //scheduleDailyStatsLogging();
   } catch (error) {
     console.error(error);
   }
@@ -71,7 +79,7 @@ client.on("interactionCreate", async (interaction) => {
   }
 
   try {
-    await command.execute(interaction);
+    await command.execute(interaction, client);
   } catch (error) {
     console.error(error);
     await interaction.reply({
@@ -85,17 +93,62 @@ const messageCooldowns = new Map();
 const mutedUsers = new Set();
 
 client.on("messageCreate", async (message) => {
-  if (!message.author || message.author.bot) return;
+  if (
+    message.channelId === "1158389642140332065" &&
+    message.author.id != "1250105529938743409"
+  ) {
+    // Utiliser une expression régulière avec insensibilité à la casse et global
+    const regex = /le joueur (.+?) vient de voter pour le serveur/i;
+    const match = message.content.match(regex);
 
-  const maxCoins = 50;
-  const maxXP = 100;
+    if (match && match[1]) {
+      if (message.author.bot == true) {
+        const pseudo = match[1].trim().toLowerCase(); // trim() pour enlever les espaces éventuels autour du pseudo
+        console.log(`Pseudo extrait: ${pseudo}`);
+
+        // Notifier la personne si elle est sur le serveur
+        const member = message.guild.members.cache.find(
+          (member) => member.user.username === pseudo
+        );
+        if (member) {
+          let userStats = require(`./stats/user_${member.id}.json`);
+          userStats.coins += 500;
+          fs.writeFileSync(
+            `./stats/user_${member.id}.json`,
+            JSON.stringify(userStats, null, 4),
+            (err) => {
+              if (err)
+                console.error(
+                  "Erreur lors de l'enregistrement du fichier de statistiques de l'utilisateur:",
+                  err
+                );
+            }
+          );
+          await message.channel.send(
+            `Hey ${member}, tu as bien voté et détecté ! **[+500 💵]**`
+          );
+        } else {
+          await message.channel.send(
+            "Une personne anonyme a voté. *(Mettez bien votre pseudo discord)*"
+          );
+        }
+      } else {
+        await message.reply("T'es un petit malin toi !");
+      }
+    }
+  }
+
+  if (!message.author || message.author.bot) return;
 
   // Chargement des données de l'utilisateur
   let userStats = {};
   try {
     userStats = require(`./stats/user_${message.author.id}.json`);
   } catch (error) {
-    console.error("Erreur lors du chargement du fichier de statistiques de l'utilisateur:", error);
+    console.error(
+      "Erreur lors du chargement du fichier de statistiques de l'utilisateur:",
+      error
+    );
   }
 
   // Gestion du cooldown
@@ -128,41 +181,60 @@ client.on("messageCreate", async (message) => {
     });
   }
 
-  // Calcul du niveau et des pièces de monnaie
+  // Configuration des niveaux et de l'XP
+  const maxCoins = 50;
+  const baseXP = 100;
+  const growthFactor = 1.5; // Facteur de croissance pour l'XP requise par niveau
+
+  // Calcul des pièces de monnaie de base et aléatoires
   const baseCoins = Math.max(
     1,
     Math.floor((Math.random() * message.content.length) / 10)
   );
   const randomCoins = Math.floor(Math.random() * 10) + 1;
-  const userXP = userStats.coins || 0; // Utilisation du nombre de pièces comme expérience
-  const userLevel = Math.floor(userXP / maxXP) + 1;
+
+  // Calcul de la somme des pièces pour ce message
+  const coinsPerMessage = baseCoins + randomCoins;
 
   // Mise à jour des pièces de monnaie
   const userId = message.author.id;
-  const coinsPerMessage = baseCoins + randomCoins;
   userStats.coins =
     (userStats.coins || 0) + Math.min(coinsPerMessage, maxCoins);
 
-  // Mise à jour de l'expérience et du niveau
-  userStats.xp = userStats.coins || 0; // Mise à jour de l'expérience avec le nombre de pièces
+  // Calcul de l'XP totale (chaque pièce équivaut à 1 XP)
+  userStats.xp = (userStats.xp || 0) + coinsPerMessage;
+
+  // Calcul du niveau en fonction de l'XP totale
+  let userXP = userStats.xp;
+  let userLevel = 1;
+  let xpForNextLevel = baseXP;
+
+  while (userXP >= xpForNextLevel) {
+    userLevel++;
+    userXP -= xpForNextLevel;
+    xpForNextLevel = Math.floor(baseXP * Math.pow(growthFactor, userLevel - 1));
+  }
+
+  // Mise à jour du niveau de l'utilisateur
   userStats.level = userLevel;
+
+  // Affichage des résultats
+  console.log(
+    `User ${userId} now has ${userStats.coins} coins, ${userStats.xp} XP, and is level ${userStats.level}.`
+  );
 
   // Écriture des données de l'utilisateur dans le fichier JSON
   fs.writeFileSync(
     `./stats/user_${userId}.json`,
     JSON.stringify(userStats, null, 4),
     (err) => {
-      if (err) console.error("Erreur lors de l'enregistrement du fichier de statistiques de l'utilisateur:", err);
+      if (err)
+        console.error(
+          "Erreur lors de l'enregistrement du fichier de statistiques de l'utilisateur:",
+          err
+        );
     }
   );
-
-  console.log(
-    `Utilisateur ${message.author.username}: Pièces - ${userStats.coins}, Niveau - ${userStats.level}`
-  );
 });
-
-
-
-
 
 client.login(TOKEN);
