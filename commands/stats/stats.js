@@ -1,8 +1,13 @@
-const { SlashCommandBuilder, AttachmentBuilder } = require("discord.js");
+const { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require('discord.js');
 const fs = require("fs");
-const { EmbedBuilder } = require("discord.js");
 const path = require("path");
 const Canvas = require("@napi-rs/canvas");
+const { getColorFromId } = require("../../colorUtils");
+const { getUserInfos, modifyUser, changeUserInfos} = require("../../utils/user.js")
+
+// Paramètres pour le calcul de l'XP nécessaire pour le prochain niveau
+const baseXP = 1000; // XP de base pour passer du niveau 1 au niveau 2
+const growthFactor = 1.5; // Facteur de croissance pour l'XP nécessaire à chaque niveau
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -10,88 +15,52 @@ module.exports = {
     .setDescription("Affiche les statistiques de coins"),
 
   async execute(interaction) {
+    await interaction.deferReply();
     const userId = interaction.user.id;
 
-    // Charger le fichier user_${userId}.json
-    const userStatsFilePath = `stats/user_${userId}.json`;
-    let userStats = {};
-    try {
-      const userStatsFileContent = fs.readFileSync(userStatsFilePath, "utf-8");
-      userStats = JSON.parse(userStatsFileContent);
-    } catch (error) {
-      console.error(
-        `Erreur lors de la lecture du fichier ${userStatsFilePath} :`,
-        error
-      );
-      return interaction.reply(
-        "Une erreur s'est produite lors de la récupération des statistiques."
-      );
+    let userInfos = await getUserInfos(userId);
+
+    const userCoins = userInfos.coins || 0;
+    const userAmethyst = userInfos.amethyst || 0;
+    const userMessages = userInfos.messages || 0;
+    const userBadges = userInfos.badges || {};
+    const userBio = userInfos.bio || "Aucune bio définie";
+
+    var valueBadge = "Aucun"
+    if (userBadges != {}) {
+      valueBadge = " "
+      Object.entries(userBadges).forEach(([key, value]) => {
+        valueBadge += `${value[1]} **${key}** *(niv${value[0]})*`
+        console.log(key, value);
+      });
+    } else {
+      valueBadge = "Aucun"
     }
 
-    // Récupérer le nombre de coins de l'utilisateur
-    const userCoins = userStats.coins || 0;
-    const userLevel = userStats.level || 0;
-    const userBio = userStats.bio || "Aucune bio définie";
 
-    // Créer un embed Discord avec EmbedBuilder et plusieurs champs
     const embed = new EmbedBuilder()
-      .setColor(0xa020f0)
-      .setTitle(`Statistiques pour ${interaction.user.username}`)
-      .addFields(
-        { name: "Nombre de coins", value: userCoins.toString() },
-        { name: "Niveau", value: userLevel.toString() },
-        { name: "Bio", value: userBio }
-      );
+    .setTitle(`Statistiques de ${interaction.user.displayName}`)
+    .setColor('#FFD700')
+    .setThumbnail(interaction.user.avatarURL());
 
-    const font = "Poppins";
-    const canvas = Canvas.createCanvas(200, 200); // Augmenter la taille du canvas pour plus de place
-    const context = canvas.getContext("2d");
-    const background = await Canvas.loadImage(
-      path.join(__dirname, "../../assets/background.jpg")
-    );
-    context.drawImage(background, 0, 0, canvas.width, canvas.height);
-
-
-    context.fillStyle = getColorFromId(interaction.user.id);
-    context.font = "32px " + font;
-    context.textAlign = "center";
-    context.textBaseline = "top";
-    context.fillText(interaction.user.username.toUpperCase(), 100, 8);
-
-    context.fillStyle = "#FFFFFF";
-    context.font = "16px " + font;
-    context.textAlign = "center";
-    context.textBaseline = "top";
-    context.fillText(userBio, 100, 38);
-    
-    context.fillStyle = "#FFFFFF";
-    context.font = "20px " + font;
-    context.textAlign = "center";
-    context.textBaseline = "top";
-    context.fillText(userCoins.toString()+" 💵", 100, 64+32);
-
-    context.fillStyle = "#FFFFFF";
-    context.font = "20px " + font;
-    context.textAlign = "center";
-    context.textBaseline = "top";
-    context.fillText("Niveau "+userLevel.toString(), 100, 64+64);
-
-    
-
-    const attachment = new AttachmentBuilder(await canvas.encode("png"), {
-      name: "profile-image.png",
+    embed.addFields({
+      name: `Profil`,
+      value: `${interaction.user.username}\n*${userBio}*`,
+      inline: true,
     });
-    // Répondre à l'interaction avec l'embed
-    await interaction.reply({ files: [attachment] });
+    embed.addFields({
+      name: `Stats`,
+      value: `${userCoins} <:gold:1261787387395047424>\n${userAmethyst} <:amethyst:1261787385126060052>\n${userMessages} messages`,
+      inline: true,
+    });
+    embed.addFields({
+      name: `Badges`,
+      value: valueBadge,
+      inline: false,
+    });
 
-    function getColorFromId(id) {
-      // Obtenir les 4 derniers chiffres de l'ID (en s'assurant que l'ID est une chaîne)
-      const lastFourDigits = id.slice(-4);
-      // Convertir en nombre entier
-      const seed = parseInt(lastFourDigits, 10);
-      // Utiliser la seed pour générer une couleur
-      const color = `hsl(${seed % 360}, 70%, 50%)`; // Utilisation de HSL pour des couleurs différentes
-      return color;
-    }
+    
+
+    await interaction.editReply({ embeds: [embed] });
   },
 };
