@@ -87,7 +87,7 @@ const cooldowns = new Map();
 
 client.on("ready", () => {
   console.log(`Logged in as $ {client.user.tag}!`);
-  let statusText = "Meilleur bot du monde - V1.1"
+  let statusText = "Meilleur bot du monde - V2"
   if (test == true) {
     statusText = "En développement..."
   }
