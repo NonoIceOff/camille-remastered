@@ -8,6 +8,9 @@ const {
   ButtonBuilder,
   ActionRowBuilder,
   ButtonStyle,
+  PollLayoutType,
+  PollAnswer,
+  WebhookClient,
 } = require("discord.js");
 const { readdirSync } = require("fs");
 const { join } = require("path");
@@ -16,8 +19,20 @@ const fs = require("fs");
 const path = require("path");
 const { EmbedBuilder } = require("discord.js");
 const { scheduleDailyStatsLogging } = require("./coins_graph_saver.js");
+const cron = require("node-cron");
+const axios = require("axios");
+const { parseStringPromise } = require("xml2js");
+const Parser = require("rss-parser");
+const parser = new Parser();
+const webhookClient = new WebhookClient({
+  url: "https://discord.com/api/webhooks/1268279903464456233/3_1h9RXXPiEwpL5CfCzOtQPaP1aprra-O3abTvT9YmHv40N_GL34vpjZ3IFS0jTSd7zt",
+});
 
-const { getUserInfos, modifyUser, changeUserInfos} = require("./utils/user.js")
+const {
+  getUserInfos,
+  modifyUser,
+  changeUserInfos,
+} = require("./utils/user.js");
 
 const client = new Client({
   intents: [
@@ -85,23 +100,360 @@ const rest = new REST({ version: "10" }).setToken(TOKEN);
 
 const cooldowns = new Map();
 
-client.on("ready", () => {
+const getPoll = async () => {
+  try {
+    var date = new Date().getDate();
+    const response = await axios.get(
+      `https://zeldaapi.vercel.app/api/polls/${date}`
+    );
+    return response;
+  } catch (error) {
+    if (error.response) {
+      console.error("Erreur de la réponse de l'API:", error.response.data);
+    } else {
+      console.error("Erreur lors de la requête API:", error.message);
+    }
+  }
+};
+
+const formatDate = (timestamp) => {
+  const months = [
+    "janvier",
+    "février",
+    "mars",
+    "avril",
+    "mai",
+    "juin",
+    "juillet",
+    "août",
+    "septembre",
+    "octobre",
+    "novembre",
+    "décembre",
+  ];
+
+  const date = new Date(timestamp);
+  const day = date.getDate();
+  const month = months[date.getMonth()];
+  const year = date.getFullYear();
+
+  return `${day} ${month} ${year}`;
+};
+
+const CHANNEL_ID = "UCQQSTVhlzarMRlSuTfjuMzg";
+const FEED_URL = `https://www.youtube.com/feeds/videos.xml?channel_id=${CHANNEL_ID}`;
+const LAST_VIDEO_FILE = "./lastVideoId.txt";
+
+async function checkForNewVideo() {
+  try {
+    // Récupérer les données du flux RSS
+    const dataVid = await parser.parseURL(FEED_URL);
+    const lastVideo = dataVid.items[0];
+
+    // Lire le dernier ID de vidéo stocké
+    let lastVideoId = null;
+    let thumbnailURL = null;
+    if (fs.existsSync(LAST_VIDEO_FILE)) {
+      lastVideoId = fs.readFileSync(LAST_VIDEO_FILE, "utf8").trim();
+      thumbnailURL = `https://img.youtube.com/vi/${lastVideoId}/maxresdefault.jpg`;
+    }
+
+    // Comparer l'ID de la dernière vidéo
+    if (lastVideo.id !== lastVideoId) {
+      console.log("Nouvelle vidéo détectée !");
+      console.log(lastVideo);
+      const guild = client.guilds.cache.get(guildId);
+      const ytChannel = guild.channels.cache.find(
+        (channel) => channel.name === "📣╎youtube-principale"
+      );
+      ytChannel.send({
+        content: `# <@&1246420184785354795>\n**NOUVELLE VIDEO**\n> [${lastVideo.title}](${lastVideo.link})`,
+      });
+
+      // Mettre à jour le fichier avec le nouvel ID de vidéo
+      fs.writeFileSync(LAST_VIDEO_FILE, lastVideo.id);
+    } else {
+      console.log("Aucune nouvelle vidéo.");
+    }
+  } catch (error) {
+    console.error("Erreur lors de la vérification des vidéos:", error);
+  }
+}
+
+const CHANNEL_ID2 = "UCS-tJq0KsxaBVFEftHetrgw";
+const FEED_URL2 = `https://www.youtube.com/feeds/videos.xml?channel_id=${CHANNEL_ID2}`;
+const LAST_VIDEO_FILE2 = "./lastVideoId2.txt";
+async function checkForNewVideo2() {
+  try {
+    // Récupérer les données du flux RSS
+    const dataVid = await parser.parseURL(FEED_URL2);
+    const lastVideo = dataVid.items[0];
+
+    // Lire le dernier ID de vidéo stocké
+    let lastVideoId = null;
+    let thumbnailURL = null;
+    if (fs.existsSync(LAST_VIDEO_FILE2)) {
+      lastVideoId = fs.readFileSync(LAST_VIDEO_FILE2, "utf8").trim();
+      thumbnailURL = `https://img.youtube.com/vi/${lastVideoId}/maxresdefault.jpg`;
+    }
+
+    // Comparer l'ID de la dernière vidéo
+    if (lastVideo.id !== lastVideoId) {
+      console.log("Nouvelle vidéo détectée !");
+      console.log(lastVideo);
+      const guild = client.guilds.cache.get(guildId);
+      const ytChannel = guild.channels.cache.find(
+        (channel) => channel.name === "📣╎youtube-gaming"
+      );
+      ytChannel.send({
+        content: `# <@&1246420219744747612>\n**NOUVELLE VIDEO**\n> [${lastVideo.title}](${lastVideo.link})`,
+      });
+
+      // Mettre à jour le fichier avec le nouvel ID de vidéo
+      fs.writeFileSync(LAST_VIDEO_FILE2, lastVideo.id);
+    } else {
+      console.log("Aucune nouvelle vidéo.");
+    }
+  } catch (error) {
+    console.error("Erreur lors de la vérification des vidéos:", error);
+  }
+}
+
+client.invites = new Map();
+client.on("ready", async () => {
   console.log(`Logged in as $ {client.user.tag}!`);
-  let statusText = "Meilleur bot du monde - V2"
+  let statusText = "Meilleur bot du monde - V2";
   if (test == true) {
-    statusText = "En développement..."
+    statusText = "En développement...";
   }
   client.user.setPresence({
-    activities: [
-      { name: `${statusText}`, type: ActivityType.Custom },
-    ],
+    activities: [{ name: `${statusText}`, type: ActivityType.Custom }],
     status: "Hello world",
+  });
+  await checkForNewVideo();
+  await checkForNewVideo2();
+
+  const button = new ButtonBuilder()
+    .setCustomId("welcome_button")
+    .setLabel("Souhaitez la bienvenue ! [10:00]")
+    .setStyle(ButtonStyle.Success);
+
+  const row = new ActionRowBuilder().addComponents(button);
+
+  button.setLabel("Trop tard pour souhaiter bienvenue");
+  button.setDisabled(true);
+  const guild = client.guilds.cache.get(guildId);
+  const welcomeChannel = guild.channels.cache.find(
+    (channel) => channel.name === "✈╎entrees-sorties"
+  );
+  welcomeChannel.messages.fetch({ limit: 100 }).then((messages) => {
+    const lastMessage = messages.find((msg) =>
+      msg.content.includes(`Bienvenue sur le serveur`)
+    );
+    if (lastMessage) {
+      lastMessage.edit({ components: [row] });
+    }
+  });
+
+  try {
+    cron.schedule("0 */2 * * *", async () => {
+      await checkForNewVideo();
+      await checkForNewVideo2();
+    });
+  } catch (error) {}
+
+  try {
+    cron.schedule("5 0 * * *", async () => {
+      const response = await axios.get(
+        "https://nominis.cef.fr/json/nominis.php"
+      );
+      let name = response.data.response.prenoms.majeurs;
+      console.log(name);
+      name = Object.keys(name)[0];
+      console.log(name);
+
+      const guild = client.guilds.cache.get(guildId);
+      const pollChannel = guild.channels.cache.find(
+        (channel) => channel.name === "éphéméride"
+      );
+      let date = Date.now();
+      let currentDate = formatDate(date);
+
+      const responsec = await axios.get("https://luha.alwaysdata.net/api/");
+      let citation = responsec.data.citation;
+
+      const responseweather = await axios.get(
+        "https://api.openweathermap.org/data/2.5/weather?q=paris&appid=97ad485b6db9822d9a93cb34073d61f3&units=metric"
+      );
+      let weather = responseweather.data.main.temp;
+
+      const responsejo = await axios.get(
+        "https://apis.codante.io/olympic-games/countries"
+      );
+      let countrys = responsejo.data.data;
+      let joid = 0;
+
+      for (let index = 0; index < 20; index++) {
+        if (countrys[index].id == "FRA") {
+          joid = index;
+        }
+      }
+
+      const responseinfos = await axios.get(
+        "https://www.francetvinfo.fr/france.rss"
+      );
+      const xmlData = responseinfos.data;
+      const parsedData = await parseStringPromise(xmlData);
+      if (
+        !parsedData ||
+        !parsedData.rss ||
+        !parsedData.rss.channel ||
+        !parsedData.rss.channel[0].item
+      ) {
+        throw new Error("Format de flux RSS invalide ou données manquantes.");
+      }
+      const item = parsedData.rss.channel[0].item.slice(0, 1);
+
+      const responsesinfos = await axios.get(
+        "https://www.francetvinfo.fr/sports.rss"
+      );
+      const xmlsData = responsesinfos.data;
+      const parsedsData = await parseStringPromise(xmlsData);
+      if (
+        !parsedsData ||
+        !parsedsData.rss ||
+        !parsedsData.rss.channel ||
+        !parsedsData.rss.channel[0].item
+      ) {
+        throw new Error("Format de flux RSS invalide ou données manquantes.");
+      }
+      const items = parsedsData.rss.channel[0].item.slice(0, 1);
+
+      await pollChannel.send(
+        `# Éphéméride du ${currentDate}\n### 1. Nous fêtons les ${name}\n### 2. Jeux Olympiques :flag_fr:\n  **${
+          joid + 1
+        }° PLACE.** *:first_place:${
+          countrys[joid].gold_medals
+        }  :second_place:${countrys[joid].silver_medals}  :third_place:${
+          countrys[joid].bronze_medals
+        }* **(:medal:${
+          countrys[joid].total_medals
+        })**\n### 3. Température à Paris (à minuit):\n *${weather}°C*\n### 4. Citation du jour\n  *${citation}*\n### 5. Info générale du jour\n  **[${
+          item[0].title[0]
+        }](${item[0].link[0]})** :\n   *${
+          item[0].description[0]
+        }*\n### 6. Info sportive du jour\n  **[${items[0].title[0]}](${
+          items[0].link[0]
+        })** :\n   *${items[0].description[0]}*`
+      );
+    });
+  } catch (error) {
+    console.error("Error trying to send: ", error);
+  }
+
+  try {
+    cron.schedule("6 13 * * *", async () => {
+      const responsepoll = await getPoll();
+      let statpoll = responsepoll.data;
+      console.log(responsepoll);
+      const guild = client.guilds.cache.get(guildId);
+      const pollChannel = guild.channels.cache.find(
+        (channel) => channel.name === "📊╎sondages"
+      );
+
+      if (pollChannel) {
+        const answers = [
+          {
+            text: statpoll.response1,
+            emoji: statpoll.emoji1,
+          },
+          {
+            text: statpoll.response2,
+            emoji: statpoll.emoji2,
+          },
+        ];
+
+        if (statpoll.response3 && statpoll.emoji3) {
+          answers.push({
+            text: statpoll.response3,
+            emoji: statpoll.emoji3,
+          });
+        }
+
+        if (statpoll.response4 && statpoll.emoji4) {
+          answers.push({
+            text: statpoll.response4,
+            emoji: statpoll.emoji4,
+          });
+        }
+
+        pollChannel.send({
+          content: "<@&1248666677088878685>",
+          poll: {
+            question: { text: statpoll.question },
+            answers: answers,
+            allowMultiselect: false,
+            duration: 24,
+            layoutType: PollLayoutType.Default, // Assurez-vous que PollLayoutType est défini correctement
+          },
+        });
+      } else {
+        console.error("Channel not found");
+      }
+    });
+  } catch (error) {
+    console.error("Error trying to send: ", error);
+  }
+
+  client.guilds.cache.forEach(async (guild) => {
+    try {
+      const invites = await guild.invites.fetch();
+      const codeUses = new Map();
+      invites.forEach((invite) => codeUses.set(invite.code, invite.uses));
+      client.invites.set(guild.id, codeUses);
+    } catch (error) {
+      console.error(
+        `Erreur lors de la récupération des invitations pour ${guild.name}:`
+      );
+    }
   });
 });
 
-client.on("guildMemberAdd", (member) => {
+client.on("inviteCreate", async (invite) => {
+  try {
+    const invites = await invite.guild.invites.fetch();
+    const codeUses = new Map();
+    invites.forEach((inv) => codeUses.set(inv.code, inv.uses));
+    client.invites.set(invite.guild.id, codeUses);
+  } catch (error) {
+    console.error(
+      `Erreur lors de l'ajout d'une nouvelle invitation pour ${invite.guild.name}:`,
+      error
+    );
+  }
+});
+
+client.on("messagePollVoteAdd", async (pollAnswer, voterId) => {
+  const users = await pollAnswer.fetchVoters();
+  console.log(users);
+});
+
+client.on("messagePollVoteRemove", async () => {
+  console.log("removed");
+});
+
+client.on("guildMemberAdd", async (member) => {
+  const date = new Date();
+  const hour = date.getHours();
+  member.send(
+    "Bienvenue sur le serveur **NONOICE COMMUNITY**\nNous t'invitons à checker les commandes de notre bot custom *Zelda* et discuter avec nos membres.\n\n*Le serveur est sponsorisé par notre chaîne Youtube Gaming, où nous aidons les personnes à se débloquer dans les jeux :* https://www.youtube.com/@LesGameplaysDeNono?sub_confirmation=1"
+  );
   const welcomeChannel = member.guild.channels.cache.find(
-    (channel) => channel.name === "📰╎lobby"
+    (channel) => channel.name === "✈╎entrees-sorties"
+  );
+
+  const tutoChannel = member.guild.channels.cache.find(
+    (channel) => channel.name === "📚╎didactitiel"
   );
 
   if (!welcomeChannel) return;
@@ -109,15 +461,47 @@ client.on("guildMemberAdd", (member) => {
   const button = new ButtonBuilder()
     .setCustomId("welcome_button")
     .setLabel("Souhaitez la bienvenue ! [10:00]")
-    .setStyle(ButtonStyle.Danger);
+    .setStyle(ButtonStyle.Success);
 
   const row = new ActionRowBuilder().addComponents(button);
 
-  const welcomeMessage = `<:join:1261071507669651486>   **Bienvenue sur le serveur, ${member.displayName}** :wave:`;
+  let invitMessage = "";
+  try {
+    const newInvites = await member.guild.invites.fetch();
+    const oldInvites = client.invites.get(member.guild.id);
+    const invite = newInvites.find(
+      (i) => i.uses > (oldInvites.get(i.code) || 0)
+    );
+    if (invite) {
+      invitMessage = `*(Invité par ${invite.inviter})*`;
+      console.log(
+        `${member.user.tag} a rejoint en utilisant l'invitation ${invite.code} de ${invite.inviter}.`
+      );
+      oldInvites.set(invite.code, invite.uses);
+      client.invites.set(member.guild.id, oldInvites);
+    } else {
+      invitMessage = ``;
+      console.log(
+        `${member.user.tag} a rejoint, mais l'invitation utilisée n'a pas été trouvée.`
+      );
+    }
+  } catch (error) {
+    console.error(
+      `Erreur lors de la vérification des invitations pour ${member.guild.name}:`,
+      error
+    );
+  }
+
+  const welcomeMessage = `<:join:1268149257832239195>   **Bienvenue sur le serveur, ${member}** :wave:\n${invitMessage}`;
 
   welcomeChannel.send({ content: welcomeMessage, components: [row] });
 
+  tutoChannel.send({
+    content: `# Didactitiel 1/1 [${member}]\n*Bienvenue, ce didactitiel à pour but d'avoir tous les clés en main pour s'amuser sur le serveur.*\n- Joue au simon avec la commande /simon, dans le salon <#1158389642140332065>\n- Dis coucou aux membres dans le salon <#1158389289646829578>`,
+  });
+
   member.roles.add("1254778700587602001");
+  member.roles.add("1267894536173256714");
 
   let timeLeft = 300; // 5 minutes in seconds
 
@@ -131,9 +515,7 @@ client.on("guildMemberAdd", (member) => {
 
     welcomeChannel.messages.fetch({ limit: 100 }).then((messages) => {
       const lastMessage = messages.find((msg) =>
-        msg.content.includes(
-          `**Bienvenue sur le serveur, ${member.displayName}**`
-        )
+        msg.content.includes(`**Bienvenue sur le serveur, ${member}**`)
       );
       if (lastMessage) {
         lastMessage.edit({ components: [row] });
@@ -147,9 +529,7 @@ client.on("guildMemberAdd", (member) => {
     clearInterval(interval);
     welcomeChannel.messages.fetch({ limit: 100 }).then((messages) => {
       const lastMessage = messages.find((msg) =>
-        msg.content.includes(
-          `**Bienvenue sur le serveur, ${member.displayName}**`
-        )
+        msg.content.includes(`**Bienvenue sur le serveur, ${member}**`)
       );
       if (lastMessage) {
         lastMessage.edit({ components: [row] });
@@ -158,34 +538,48 @@ client.on("guildMemberAdd", (member) => {
   }, 300000); // 5 minutes in milliseconds
 });
 
-client.on("guildMemberRemove", (member) => {
+client.on("guildMemberRemove", async (member) => {
+  const date = new Date();
+  const hour = date.getHours();
   const welcomeChannel = member.guild.channels.cache.find(
-    (channel) => channel.name === "📰╎lobby"
+    (channel) => channel.name === "✈╎entrees-sorties"
   );
 
   if (!welcomeChannel) return;
 
-  const welcomeMessage = `<:leave:1261082236359413952>   **Au revoir ${member.displayName}**`;
-
+  const welcomeMessage = `<:leave:1268149259258298380>   **Au revoir ${member.displayName}**`;
   welcomeChannel.send({ content: welcomeMessage });
 
-  welcomeChannel.messages.fetch({ limit: 100 }).then((messages) => {
+  if (hour >= 0 && hour < 12) {
+    const welcomeMessage2 = `*${member}, vous avez quitté le serveur pendant une période de nuit où les membres étaient potentiellement pas là, pour une meilleure expérience nous vous demandons si vous le souhaitez de revenir pour voir ce qu'il se passe le jour.\nhttps://discord.com/invite/vjveBySWMP\nMerci beaucoup.*`;
+    try {
+      await member.send({ content: welcomeMessage2 });
+    } catch (error) {
+      console.log(
+        `Impossible d'envoyer un message privé à ${member.displayName}.`
+      );
+    }
+  }
+
+  try {
+    const messages = await welcomeChannel.messages.fetch({ limit: 100 });
     const lastMessage = messages.find((msg) =>
-      msg.content.includes(
-        `**Bienvenue sur le serveur, ${member.displayName}**`
-      )
+      msg.content.includes(`**Bienvenue sur le serveur, ${member}**`)
     );
+
     if (lastMessage) {
       const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
           .setCustomId("welcome_button")
-          .setLabel("Trop tard pour souhaiter bienvenue")
-          .setStyle(ButtonStyle.Danger)
+          .setLabel("La personne a quitté le serveur :/")
+          .setStyle(ButtonStyle.Secondary)
           .setDisabled(true)
       );
-      lastMessage.edit({ components: [row] });
+      await lastMessage.edit({ components: [row] });
     }
-  });
+  } catch (error) {
+    console.log("Erreur lors de la modification du message:", error);
+  }
 });
 
 const voiceTimes = {}; // Utiliser un objet pour suivre les temps en vocal temporairement
@@ -205,16 +599,15 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
       const endTime = Date.now();
       const duration = (endTime - startTime) / 1000; // en secondes
 
-
       // Calculer les pièces et l'XP à ajouter pour chaque minute passée en vocal
       let minutesPassed = Math.floor(duration / 60000); // Convertir la durée de millisecondes en minutes
       let coinsToAdd = 0;
       if (minutesPassed > 0) {
         coinsToAdd = minutesPassed * 2;
       }
-      console.log(coinsToAdd,duration)
+      console.log(coinsToAdd, duration);
 
-      await changeUserInfos(userId,coinsToAdd,"","",duration,0,0)
+      await changeUserInfos(userId, coinsToAdd, "", "", duration, 0, 0);
 
       // Supprimer l'entrée de voiceTimes
       delete voiceTimes[userId];
@@ -227,9 +620,18 @@ client.on("interactionCreate", async (interaction) => {
   if (interaction.customId === "welcome_button") {
     if (!interactionMap.has(interaction.user.id)) {
       interactionMap.set(interaction.user.id, true);
+
+      await webhookClient
+        .send({
+          content: `:wave:  *Bienvenue ! (de la part de ${interaction.user.globalName})*`,
+          username: interaction.user.globalName,
+          avatarURL: interaction.user.avatarURL(),
+        })
+        .then((webhook) => console.log(interaction.user))
+        .catch(console.error);
       await interaction.reply({
-        content: `Bienvenue :wave: ! De la part de ${interaction.member}`,
-        ephemeral: false,
+        content: "Message de bienvenue bien envoyé !",
+        ephemeral: true,
       });
     } else {
       await interaction.reply({
@@ -260,10 +662,20 @@ client.on("interactionCreate", async (interaction) => {
   }
 
   try {
-    if (test == true) {
+    if (
+      interaction.channel.id != "1158389642140332065" &&
+      interaction.channel.id != "1234107384654204939"
+    ) {
+      await interaction.reply({
+        content:
+          "Vous ne devez utiliser les commandes que sur <#1158389642140332065>",
+        ephemeral: true, // Make this reply ephemeral so that it doesn't clutter the channel
+      });
+    } else if (test == true) {
       if (!interaction.member.permissions.has("ADMINISTRATOR")) {
         await interaction.reply({
           content: "Le bot est en maintenance",
+          ephemeral: true,
         });
       } else {
         await command.execute(interaction, client);
@@ -273,10 +685,14 @@ client.on("interactionCreate", async (interaction) => {
     }
   } catch (error) {
     console.error(error);
-    await interaction.reply({
-      content: "There was an error while executing this command!",
-      ephemeral: true,
-    });
+
+    // Check if the interaction has already been replied to avoid the InteractionAlreadyReplied error
+    if (!interaction.replied) {
+      await interaction.reply({
+        content: "There was an error while executing this command!",
+        ephemeral: true,
+      });
+    }
   }
 });
 
@@ -323,7 +739,7 @@ client.on("messageCreate", async (message) => {
           console.log(`ID de l'utilisateur: ${userId}`);
 
           try {
-            changeUserInfos(userId,500,"","",0,0,0)
+            changeUserInfos(userId, 500, "", "", 0, 0, 0);
             const fetchedMessages = await message.channel.messages.fetch({
               limit: 1,
             });
@@ -334,15 +750,10 @@ client.on("messageCreate", async (message) => {
             } else {
               console.log("Aucun message trouvé dans le canal.");
             }
-            const embed = new EmbedBuilder()
-              .setTitle("Vote Détecté")
-              .setColor("#FFD700")
-              .setDescription(
-                `**Hey <@${userId}>, tu as bien voté !** Voici vos +500 <:gold:1261787387395047424> bien mérités !!`
-              )
-              .setTimestamp();
 
-            await message.channel.send({ embeds: [embed] });
+            await message.channel.send({
+              content: `<:vote:1268147864551297068>  **Vote effectué par <@${userId}>** (+500 <:gold:1261787387395047424>)`,
+            });
           } catch (err) {
             console.error(
               "Erreur lors de la mise à jour des statistiques de l'utilisateur:",
@@ -383,13 +794,15 @@ client.on("messageCreate", async (message) => {
   // Chargement des données de l'utilisateur
   try {
     const userId = message.author.id;
-    const response = await axios.get(`https://zeldaapi.vercel.app/api/user/${userId}`);
+    const response = await axios.get(
+      `https://zeldaapi.vercel.app/api/user/${userId}`
+    );
     console.log(response.data);
   } catch (error) {
     if (error.response) {
       // Le serveur a répondu avec un code de statut différent de 2xx
       if (error.response.status === 404) {
-        console.log('Utilisateur non trouvé, créons en un nouveau');
+        console.log("Utilisateur non trouvé, créons en un nouveau");
         createUser(message.author.id);
       } else {
         console.error(`Erreur lors de la requête: ${error.message}`);
@@ -443,36 +856,31 @@ client.on("messageCreate", async (message) => {
   // Mise à jour des pièces de monnaie
   const userId = message.author.id;
 
-  changeUserInfos(userId,Math.min(coinsPerMessage, maxCoins),"","",0,0,1)
+  changeUserInfos(userId, Math.min(coinsPerMessage, maxCoins), "", "", 0, 0, 1, client);
 
   //userStats.badges = userStats.badges || {};
-  
-
-
 });
 
 const createUser = async (id) => {
   try {
-    const response = await axios.post('https://zeldaapi.vercel.app/api/user', {
+    const response = await axios.post("https://zeldaapi.vercel.app/api/user", {
       id: id,
       coins: 0,
-      bio: 'Bio non définie',
-      color: '',
+      bio: "Bio non définie",
+      color: "",
       voicetime: 0,
       amethyst: 0,
-      messages: 0
+      messages: 0,
     });
 
-    console.log('Réponse de l\'API:', response.data);
+    console.log("Réponse de l'API:", response.data);
   } catch (error) {
     if (error.response) {
-      console.error('Erreur de la réponse de l\'API:', error.response.data);
+      console.error("Erreur de la réponse de l'API:", error.response.data);
     } else {
-      console.error('Erreur lors de la requête API:', error.message);
+      console.error("Erreur lors de la requête API:", error.message);
     }
   }
 };
-
-
 
 client.login(TOKEN);

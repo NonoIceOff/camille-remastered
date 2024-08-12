@@ -58,6 +58,7 @@ const number = 500
 module.exports = {
   data: dailyCommand,
   async execute(interaction) {
+    await interaction.deferReply();
     const { dailyData, filePath } = getUserDailyData(interaction.user.id);
     if (dailyData[interaction.user.id].attempts <= 0) {
       dailyData[interaction.user.id].attempts += 1;
@@ -68,9 +69,9 @@ module.exports = {
       userStats.coins += number
       changeUserInfos(interaction.user.id,number,"","",0,0,0)
 
-      interaction.reply(`**Vous obtenez +${number} <:gold:1261787387395047424>.** *Revenez demain pour une nouvelle récompense...*`);
+      interaction.editReply(`**Vous obtenez +${number} <:gold:1261787387395047424>.** *Revenez demain pour une nouvelle récompense...*`);
     } else {
-      await interaction.reply({
+      await interaction.editReply({
         content: "Vous avez déjà réclamé votre récompense quotidienne",
         ephemeral: true,
       });

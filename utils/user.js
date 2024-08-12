@@ -1,5 +1,5 @@
 const axios = require("axios");
-const BASE_API_URL = "https://zeldaapi.vercel.app/api";
+const { TOKEN, guildId, clientId, test } = require("../config");
 
 const modifyUser = async (
   id,
@@ -34,6 +34,28 @@ const modifyUser = async (
   }
 };
 
+const checkAchievementMessages = async (messages, id, client) => {
+  if (messages == 1) {
+    const guild = client.guilds.cache.get(guildId);
+    if (guild) {
+      const commandC = guild.channels.cache.find(
+        (channel) => channel.name === "test-bot"
+      );
+
+      if (commandC) {
+        commandC.send({
+          content: `:trophy:  **Bienvenue parmi nous** *Avoir envoyé votre premier message*`,
+          files: ["assets/achievement.png"],
+        });
+      } else {
+        console.error("Command channel not found.");
+      }
+    } else {
+      console.error("Guild not found.");
+    }
+  }
+};
+
 const changeUserInfos = async (
   id,
   coins,
@@ -41,7 +63,8 @@ const changeUserInfos = async (
   color,
   voicetime,
   amethyst,
-  messages
+  messages,
+  client
 ) => {
   // RECUPERER LES DONNEES
   try {
@@ -53,6 +76,7 @@ const changeUserInfos = async (
     let newvoicetime = userInfos.voicetime + voicetime;
     let newamethyst = Math.floor(userInfos.amethyst + amethyst);
     let newmessages = userInfos.messages + messages;
+    checkAchievementMessages(newmessages, id, client);
 
     modifyUser(
       id,
@@ -64,10 +88,7 @@ const changeUserInfos = async (
       newmessages
     );
   } catch (error) {
-    console.error(
-      "Erreur de la récupoération de l utilisateur",
-      error
-    );
+    console.error("Erreur de la récupoération de l utilisateur", error);
   }
 };
 

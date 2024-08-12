@@ -16,20 +16,34 @@ module.exports = {
     // Determine which collection to use based on type
     switch (type) {
       case "fish":
-        collection = await axios.get(`https://zeldaapi.vercel.app/api/items?type=fish`).then(response => response.data);
+        collection = await axios
+          .get(`https://zeldaapi.vercel.app/api/items?type=fish`)
+          .then((response) => response.data);
         title = "Collection de poissons";
         break;
       case "treasure":
-        collection = await axios.get(`https://zeldaapi.vercel.app/api/items?type=${type}`).then(response => response.data);
+        collection = await axios
+          .get(`https://zeldaapi.vercel.app/api/items?type=${type}`)
+          .then((response) => response.data);
         title = "Collection de trésors";
         break;
       case "fruits":
-        collection = await axios.get(`https://zeldaapi.vercel.app/api/items?type=fruit_vegetable`).then(response => response.data);
+        collection = await axios
+          .get(`https://zeldaapi.vercel.app/api/items?type=fruit_vegetable`)
+          .then((response) => response.data);
         title = "Collection de fruits et légumes";
         break;
       case "minecraft":
-        collection = await axios.get(`https://zeldaapi.vercel.app/api/items?type=${type}`).then(response => response.data);
+        collection = await axios
+          .get(`https://zeldaapi.vercel.app/api/items?type=${type}`)
+          .then((response) => response.data);
         title = "Collection Minecraft";
+        break;
+      case "country":
+        collection = await axios
+          .get(`https://zeldaapi.vercel.app/api/items?type=${type}`)
+          .then((response) => response.data);
+        title = "Collection de pays";
         break;
       default:
         return interaction.reply({
@@ -42,8 +56,10 @@ module.exports = {
 
     let userInventory;
     try {
-      const inv = await axios.get(`https://zeldaapi.vercel.app/api/user/${interaction.user.id}/inventory`);
-      userInventory = { "items": inv.data };
+      const inv = await axios.get(
+        `https://zeldaapi.vercel.app/api/user/${interaction.user.id}/inventory`
+      );
+      userInventory = { items: inv.data };
     } catch (error) {
       console.error(`Error loading user inventory for user ${userId}:`, error);
       return interaction.reply({
@@ -52,7 +68,6 @@ module.exports = {
         ephemeral: true,
       });
     }
-
 
     // Filter the collection to show only missing items
     const missingItems = collection.filter(

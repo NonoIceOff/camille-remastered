@@ -17,7 +17,8 @@ module.exports = {
               { name: "Poissons", value: "fish" },
               { name: "Trésors", value: "treasure" },
               { name: "Fruits & légumes", value: "fruits" },
-              { name: "Minecraft", value: "minecraft" }
+              { name: "Minecraft", value: "minecraft" },
+              { name: "Pays", value: "country" }
             )
         )
     )
@@ -36,7 +37,8 @@ module.exports = {
                 { name: "Poissons", value: "fish" },
                 { name: "Trésors", value: "treasure" },
                 { name: "Fruits & légumes", value: "fruits" },
-                { name: "Minecraft", value: "minecraft" }
+                { name: "Minecraft", value: "minecraft" },
+                { name: "Pays", value: "country" }
               )
           )
     ),

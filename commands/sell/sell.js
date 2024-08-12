@@ -34,15 +34,21 @@ module.exports = {
         .setDescription("Vend tous tes items en double")
     ),
   async execute(interaction, client) {
+    await interaction.reply({
+      content:
+        "Commande bloquée",
+      embeds: [],
+      components: [],
+    });
     // Appeler l'exécution de la sous-commande 'voice'
-    if (interaction.options.getSubcommand() === "dry") {
-      require("./sell_dry").execute(interaction, client);
-    }
-    if (interaction.options.getSubcommand() === "inventory") {
-      require("./sell_inventory").execute(interaction, client);
-    }
-    if (interaction.options.getSubcommand() === "double") {
-      require("./sell_double").execute(interaction, client);
-    }
+    //if (interaction.options.getSubcommand() === "dry") {
+    //  require("./sell_dry").execute(interaction, client);
+    //}
+    //if (interaction.options.getSubcommand() === "inventory") {
+    //  require("./sell_inventory").execute(interaction, client);
+    //}
+    //if (interaction.options.getSubcommand() === "double") {
+    //  require("./sell_double").execute(interaction, client);
+    //}
   },
 };

@@ -59,6 +59,7 @@ module.exports = {
 
             for (const item of items) {
                 const title = item.title[0];
+                console.log(title)
                 const link = item.link[0];
                 let description = item.description ? item.description[0] : 'Description non disponible';
                 const pubDate = new Date(item.pubDate[0]);
@@ -69,7 +70,6 @@ module.exports = {
                 // Création de l'embed avec l'image
                 const exampleEmbed = {
                     title: title.length > 100 ? `${title.slice(0, 100)}...` : title,
-                    color: "#FFD700",
                     url: link,
                     thumbnail: image ? { url: image } : null,
                     description: `*${description}*`,
