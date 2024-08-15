@@ -10,6 +10,9 @@ config.js
 *.userosscache
 *.sln.docstates
 
+start.bat
+stats.zip
+
 inventory/
 stats/
 daily_usage/
