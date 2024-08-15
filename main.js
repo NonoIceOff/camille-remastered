@@ -249,7 +249,7 @@ client.on("ready", async () => {
 
       const guild = client.guilds.cache.get(guildId);
       const pollChannel = guild.channels.cache.find(
-        (channel) => channel.name === "test-bot"
+        (channel) => channel.name === "éphéméride"
       );
       let date = Date.now();
       let currentDate = formatDate(date);
