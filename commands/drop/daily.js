@@ -38,6 +38,7 @@ function getUserDailyData(userId) {
   return { dailyData, filePath };
 }
 
+
 function saveUserDailyData(filePath, dailyData) {
   try {
     fs.writeFileSync(filePath, JSON.stringify(dailyData, null, 4), "utf-8");
