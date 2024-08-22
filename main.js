@@ -233,37 +233,12 @@ client.on("ready", async () => {
   await checkForNewVideo();
   await checkForNewVideo2();
 
-  const button = new ButtonBuilder()
-    .setCustomId("welcome_button")
-    .setLabel("Souhaitez la bienvenue ! [10:00]")
-    .setStyle(ButtonStyle.Success);
-
-  const row = new ActionRowBuilder().addComponents(button);
-
-  button.setLabel("Trop tard pour souhaiter bienvenue");
-  button.setDisabled(true);
-  const guild = client.guilds.cache.get(guildId);
-  const welcomeChannel = guild.channels.cache.find(
-    (channel) => channel.name === "✈╎entrees-sorties"
-  );
-  welcomeChannel.messages.fetch({ limit: 100 }).then((messages) => {
-    const lastMessage = messages.find((msg) =>
-      msg.content.includes(`Bienvenue sur le serveur`)
-    );
-    if (lastMessage) {
-      lastMessage.edit({ components: [row] });
-    }
-  });
+  if (test == true) {
+    return;
+  }
 
   try {
-    cron.schedule("0 */2 * * *", async () => {
-      await checkForNewVideo();
-      await checkForNewVideo2();
-    });
-  } catch (error) {}
-
-  try {
-    cron.schedule("5 0 * * *", async () => {
+    cron.schedule("0 6 * * *", async () => {
       const response = await axios.get(
         "https://nominis.cef.fr/json/nominis.php"
       );
@@ -329,27 +304,53 @@ client.on("ready", async () => {
       }
       const items = parsedsData.rss.channel[0].item.slice(0, 1);
 
+      const responseanime = await axios.get(
+        "https://api.jikan.moe/v4/random/anime"
+      );
+      let anime = responseanime.data.data;
+
       await pollChannel.send(
-        `# Éphéméride du ${currentDate}\n### 1. Nous fêtons les ${name}\n### 2. Jeux Olympiques :flag_fr:\n  **${
-          joid + 1
-        }° PLACE.** *:first_place:${
-          countrys[joid].gold_medals
-        }  :second_place:${countrys[joid].silver_medals}  :third_place:${
-          countrys[joid].bronze_medals
-        }* **(:medal:${
-          countrys[joid].total_medals
-        })**\n### 3. Température à Paris (à minuit):\n *${weather}°C*\n### 4. Citation du jour\n  *${citation}*\n### 5. Info générale du jour\n  **[${
-          item[0].title[0]
-        }](${item[0].link[0]})** :\n   *${
-          item[0].description[0]
-        }*\n### 6. Info sportive du jour\n  **[${items[0].title[0]}](${
-          items[0].link[0]
-        })** :\n   *${items[0].description[0]}*`
+        `# Éphéméride du ${currentDate}\n### 1. Nous fêtons les ${name}\n` +
+          //+`### 2. Jeux Paralympiques :flag_fr:\n  **${joid + 1}° PLACE.** *:first_place:${countrys[joid].gold_medals}  :second_place:${countrys[joid].silver_medals}  :third_place:${countrys[joid].bronze_medals}* **(:medal:${countrys[joid].total_medals})**\n`
+          `### 2. Température à Paris (à 6h00): *${weather}°C*\n` +
+          `### 3. Citation du jour *(via luha.alwaysdata.net)*\n  *${citation}*\n` +
+          `### 4. Info générale du jour *(via franceinfo.fr)*\n  **${item[0].title[0]}** :\n   *$${item[0].link[0]}}*\n` +
+          //+`### 5. Info sportive du jour\n  **[${items[0].title[0]}](${items[0].link[0]})** :\n   *${items[0].description[0]}*`
+          `### 6. Anime du jour\n  [${anime.title}](${anime.url})\n  *Type: ${anime.type}*  | *Score: ${anime.score}/10*  | *${anime.episodes} épisodes*  | *Diffusion le ${anime.aired.prop.from.day}/${anime.aired.prop.from.month}/${anime.aired.prop.from.year} jusqu'au ${anime.aired.prop.to.day}/${anime.aired.prop.to.month}/${anime.aired.prop.to.year}*`
       );
     });
   } catch (error) {
     console.error("Error trying to send: ", error);
   }
+
+  const button = new ButtonBuilder()
+    .setCustomId("welcome_button")
+    .setLabel("Souhaitez la bienvenue ! [10:00]")
+    .setStyle(ButtonStyle.Success);
+
+  const row = new ActionRowBuilder().addComponents(button);
+
+  button.setLabel("Trop tard pour souhaiter bienvenue");
+  button.setDisabled(true);
+  const guild = client.guilds.cache.get(guildId);
+  const welcomeChannel = guild.channels.cache.find(
+    (channel) => channel.name === "✈╎entrees-sorties"
+  );
+  welcomeChannel.messages.fetch({ limit: 100 }).then((messages) => {
+    const lastMessage = messages.find((msg) =>
+      msg.content.includes(`Bienvenue sur le serveur`)
+    );
+    if (lastMessage) {
+      lastMessage.edit({ components: [row] });
+    }
+  });
+
+  try {
+    cron.schedule("0 */2 * * *", async () => {
+      await checkForNewVideo();
+      await checkForNewVideo2();
+    });
+  } catch (error) {}
 
   try {
     cron.schedule("6 13 * * *", async () => {
@@ -420,6 +421,10 @@ client.on("ready", async () => {
 });
 
 client.on("inviteCreate", async (invite) => {
+  if (test == true) {
+    return;
+  }
+
   try {
     const invites = await invite.guild.invites.fetch();
     const codeUses = new Map();
@@ -443,6 +448,9 @@ client.on("messagePollVoteRemove", async () => {
 });
 
 client.on("guildMemberAdd", async (member) => {
+  if (test == true) {
+    return;
+  }
   const date = new Date();
   const hour = date.getHours();
   member.send(
@@ -539,6 +547,9 @@ client.on("guildMemberAdd", async (member) => {
 });
 
 client.on("guildMemberRemove", async (member) => {
+  if (test == true) {
+    return;
+  }
   const date = new Date();
   const hour = date.getHours();
   const welcomeChannel = member.guild.channels.cache.find(
@@ -585,6 +596,9 @@ client.on("guildMemberRemove", async (member) => {
 const voiceTimes = {}; // Utiliser un objet pour suivre les temps en vocal temporairement
 
 client.on("voiceStateUpdate", async (oldState, newState) => {
+  if (test == true) {
+    return;
+  }
   const userId = newState.member.id;
 
   // Si l'utilisateur rejoint un canal vocal
@@ -700,6 +714,9 @@ const messageCooldowns = new Map();
 const mutedUsers = new Set();
 
 client.on("messageCreate", async (message) => {
+  if (test == true) {
+    return;
+  }
   if (
     message.channelId === "1158389642140332065" &&
     message.author.id != "1250105529938743409"
@@ -856,7 +873,16 @@ client.on("messageCreate", async (message) => {
   // Mise à jour des pièces de monnaie
   const userId = message.author.id;
 
-  changeUserInfos(userId, Math.min(coinsPerMessage, maxCoins), "", "", 0, 0, 1, client);
+  changeUserInfos(
+    userId,
+    Math.min(coinsPerMessage, maxCoins),
+    "",
+    "",
+    0,
+    0,
+    1,
+    client
+  );
 
   //userStats.badges = userStats.badges || {};
 });
