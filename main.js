@@ -388,16 +388,16 @@ client.on("ready", async () => {
           });
         }
 
-        pollChannel.send({
-          content: "<@&1248666677088878685>",
-          poll: {
-            question: { text: statpoll.question },
-            answers: answers,
-            allowMultiselect: false,
-            duration: 24,
-            layoutType: PollLayoutType.Default, // Assurez-vous que PollLayoutType est défini correctement
-          },
-        });
+        //pollChannel.send({
+        //  content: "<@&1248666677088878685>",
+        //  poll: {
+        //    question: { text: statpoll.question },
+        //    answers: answers,
+        //    allowMultiselect: false,
+        //    duration: 24,
+        //    layoutType: PollLayoutType.Default, // Assurez-vous que PollLayoutType est défini correctement
+        //  },
+        //});
       } else {
         console.error("Channel not found");
       }
