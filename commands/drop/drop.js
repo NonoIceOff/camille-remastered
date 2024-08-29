@@ -192,7 +192,7 @@ module.exports = {
 
       for (let attempt = 0; attempt < numberOfAttempts; attempt++) {
         const progressBar = generateProgressBar(attempt + 1, numberOfAttempts);
-        await interaction.editReply(`Drops en cours ... *(${progressBar})*`);
+        await interaction.editReply(`${progressBar}`);
         const newItem = getRandomItem(listType);
 
         const existingItemIndex = inventory.items.findIndex(
@@ -244,7 +244,7 @@ module.exports = {
       });
 
       embedBuilder.setFooter({
-        text: "Commun 45.45% | Ppeu commun 27.27% | Rare 18.18% | Très rare 9.09%",
+        text: "Commun 45.45% | Peu commun 27.27% | Rare 18.18% | Très rare 9.09%",
       });
 
       dailyData[userId].attempts += numberOfAttempts;
