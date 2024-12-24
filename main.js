@@ -309,15 +309,25 @@ client.on("ready", async () => {
       );
       let anime = responseanime.data.data;
 
-      await pollChannel.send(
-        `# Éphéméride du ${currentDate}\n### 1. Nous fêtons les ${name}\n` +
-          //+`### 2. Jeux Paralympiques :flag_fr:\n  **${joid + 1}° PLACE.** *:first_place:${countrys[joid].gold_medals}  :second_place:${countrys[joid].silver_medals}  :third_place:${countrys[joid].bronze_medals}* **(:medal:${countrys[joid].total_medals})**\n`
-          `### 2. Température à Paris (à 6h00): *${weather}°C*\n` +
-          `### 3. Citation du jour *(via luha.alwaysdata.net)*\n  *${citation}*\n` +
-          `### 4. Info générale du jour *(via franceinfo.fr)*\n  **${item[0].title[0]}** :\n   *$${item[0].link[0]}}*\n` +
-          //+`### 5. Info sportive du jour\n  **[${items[0].title[0]}](${items[0].link[0]})** :\n   *${items[0].description[0]}*`
-          `### 6. Anime du jour\n  [${anime.title}](${anime.url})\n  *Type: ${anime.type}*  | *Score: ${anime.score}/10*  | *${anime.episodes} épisodes*  | *Diffusion le ${anime.aired.prop.from.day}/${anime.aired.prop.from.month}/${anime.aired.prop.from.year} jusqu'au ${anime.aired.prop.to.day}/${anime.aired.prop.to.month}/${anime.aired.prop.to.year}*`
-      );
+      // Création de l'embed
+      const ephEmbed = new EmbedBuilder()
+        .setColor('#0099ff') // Couleur de l'embed
+        .setTitle(`Éphéméride du ${currentDate}`)
+        .setDescription("Découvrez les faits marquants du jour :")
+        .addFields(
+          { name: '🎉 Fête du jour', value: `Nous fêtons les **${name}**`, inline: false },
+          { name: '🌡️ Température à Paris (6h00)', value: `**${weather}°C**`, inline: false },
+          {
+            name: '📰 Info générale du jour *(via franceinfo.fr)*',
+            value: `**${item[0].title[0]}**\n[Lire l'article complet](${item[0].link[0]})`,
+            inline: false
+          }
+        )
+        .setFooter({ text: 'Informations collectées automatiquement', iconURL: 'https://example.com/footer-icon.png' }) // Remplace par un lien valide
+        .setTimestamp(); // Ajoute l'horodatage
+
+      // Envoi du message
+      await pollChannel.send({ embeds: [ephEmbed] });
     });
   } catch (error) {
     console.error("Error trying to send: ", error);
@@ -350,7 +360,7 @@ client.on("ready", async () => {
       await checkForNewVideo();
       await checkForNewVideo2();
     });
-  } catch (error) {}
+  } catch (error) { }
 
   try {
     cron.schedule("6 13 * * *", async () => {
