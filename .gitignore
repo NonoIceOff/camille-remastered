@@ -9,6 +9,8 @@ config.js
 *.user
 *.userosscache
 *.sln.docstates
+/node_modules
+node_modules/
 
 start.bat
 stats.zip
