@@ -27,6 +27,11 @@ const parser = new Parser();
 const webhookClient = new WebhookClient({
   url: "https://discord.com/api/webhooks/1268279903464456233/3_1h9RXXPiEwpL5CfCzOtQPaP1aprra-O3abTvT9YmHv40N_GL34vpjZ3IFS0jTSd7zt",
 });
+const fetch = require("node-fetch");
+
+const { GoogleGenerativeAI } = require("@google/generative-ai");
+const genAI = new GoogleGenerativeAI("AIzaSyCPwYES7iEEy6ZaCkB4Hg1a1GU9g18z4CI");
+const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
 
 const {
   getUserInfos,
@@ -160,15 +165,17 @@ async function checkForNewVideo() {
 
     // Comparer l'ID de la dernière vidéo
     if (lastVideo.id !== lastVideoId) {
-      console.log("Nouvelle vidéo détectée !");
-      console.log(lastVideo);
-      const guild = client.guilds.cache.get(guildId);
-      const ytChannel = guild.channels.cache.find(
-        (channel) => channel.name === "📣╎youtube-principale"
-      );
-      ytChannel.send({
-        content: `# <@&1246420184785354795>\n**NOUVELLE VIDEO**\n> [${lastVideo.title}](${lastVideo.link})`,
-      });
+      if (!lastVideo.title.includes("#shorts")) {
+        console.log("Nouvelle vidéo détectée !");
+        console.log(lastVideo);
+        const guild = client.guilds.cache.get(guildId);
+        const ytChannel = guild.channels.cache.find(
+          (channel) => channel.name === "📣╎youtube-principale"
+        );
+        ytChannel.send({
+          content: `# <@&1246420184785354795>\n**NOUVELLE VIDEO**\n> [${lastVideo.title}](${lastVideo.link})`,
+        });
+      }
 
       // Mettre à jour le fichier avec le nouvel ID de vidéo
       fs.writeFileSync(LAST_VIDEO_FILE, lastVideo.id);
@@ -199,15 +206,17 @@ async function checkForNewVideo2() {
 
     // Comparer l'ID de la dernière vidéo
     if (lastVideo.id !== lastVideoId) {
-      console.log("Nouvelle vidéo détectée !");
-      console.log(lastVideo);
-      const guild = client.guilds.cache.get(guildId);
-      const ytChannel = guild.channels.cache.find(
-        (channel) => channel.name === "📣╎youtube-gaming"
-      );
-      ytChannel.send({
-        content: `# <@&1246420219744747612>\n**NOUVELLE VIDEO**\n> [${lastVideo.title}](${lastVideo.link})`,
-      });
+      if (!lastVideo.title.includes("#shorts")) {
+        console.log("Nouvelle vidéo détectée !");
+        console.log(lastVideo);
+        const guild = client.guilds.cache.get(guildId);
+        const ytChannel = guild.channels.cache.find(
+          (channel) => channel.name === "📣╎youtube-gaming"
+        );
+        ytChannel.send({
+          content: `# <@&1246420219744747612>\n**NOUVELLE VIDEO**\n> [${lastVideo.title}](${lastVideo.link})`,
+        });
+      }
 
       // Mettre à jour le fichier avec le nouvel ID de vidéo
       fs.writeFileSync(LAST_VIDEO_FILE2, lastVideo.id);
@@ -220,7 +229,62 @@ async function checkForNewVideo2() {
 }
 
 client.invites = new Map();
+
+async function generatePoll() {
+  try {
+    console.log("Génération du sondage");
+    const result = await model.generateContent(
+      `Génère-moi une question de culture générale avec 4 propositions de réponses, et donne le sous un format JSON sans bloc code, en mode RAW. Format comme ceci : {"question": "question", "options": ["a", "b", "c", "d"], "réponse": "2"}. Et prends pas les mêmes questions à chaque fois stp merci. Ne pas dépasser 55 caractères à chaque réponse (car sinon tu mets ...)`
+    );
+
+    const pollText = result.response.candidates[0].content.parts[0].text;
+    const poll = JSON.parse(pollText);
+
+    var data = {
+      content: "<@&1248666677088878685>",
+      poll: {
+        question: { text: poll.question },
+        answers: poll.options.map((option, index) => ({
+          text: option,
+          emoji: ["🔴", "🟢", "🔵", "🟡"][index] || "⚪", // Emojis pour chaque option
+        })),
+        allowMultiselect: false,
+        duration: 12,
+      }
+    }
+
+    console.log(data)
+
+    return data;
+  } catch (error) {
+    console.error("Erreur lors de la génération du sondage :", error);
+    return "Erreur lors de la génération du sondage.";
+  }
+}
+
 client.on("ready", async () => {
+  try {
+    console.log("ok")
+
+    cron.schedule("0 0 10 * * *", async () => {
+      console.log("Nouveau sondage");
+      const poll = await generatePoll();
+      const guild = client.guilds.cache.get(guildId);
+      const channel = guild.channels.cache.find(
+        (channel) => channel.name === "test-bot"
+      );
+      if (channel) {
+        console.log("Publication.")
+        console.log(poll)
+        channel.send(poll);
+      } else {
+        console.log("Salon introuvable");
+      }
+    });
+  } catch (error) {
+    console.error(error);
+  }
+
   console.log(`Logged in as $ {client.user.tag}!`);
   let statusText = "Meilleur bot du monde - V2";
   if (test == true) {
@@ -309,25 +373,15 @@ client.on("ready", async () => {
       );
       let anime = responseanime.data.data;
 
-      // Création de l'embed
-      const ephEmbed = new EmbedBuilder()
-        .setColor('#0099ff') // Couleur de l'embed
-        .setTitle(`Éphéméride du ${currentDate}`)
-        .setDescription("Découvrez les faits marquants du jour :")
-        .addFields(
-          { name: '🎉 Fête du jour', value: `Nous fêtons les **${name}**`, inline: false },
-          { name: '🌡️ Température à Paris (6h00)', value: `**${weather}°C**`, inline: false },
-          {
-            name: '📰 Info générale du jour *(via franceinfo.fr)*',
-            value: `**${item[0].title[0]}**\n[Lire l'article complet](${item[0].link[0]})`,
-            inline: false
-          }
-        )
-        .setFooter({ text: 'Informations collectées automatiquement', iconURL: 'https://example.com/footer-icon.png' }) // Remplace par un lien valide
-        .setTimestamp(); // Ajoute l'horodatage
-
-      // Envoi du message
-      await pollChannel.send({ embeds: [ephEmbed] });
+      await pollChannel.send(
+        `# Éphéméride du ${currentDate}\n### 1. Nous fêtons les ${name}\n` +
+        //+`### 2. Jeux Paralympiques :flag_fr:\n  **${joid + 1}° PLACE.** *:first_place:${countrys[joid].gold_medals}  :second_place:${countrys[joid].silver_medals}  :third_place:${countrys[joid].bronze_medals}* **(:medal:${countrys[joid].total_medals})**\n`
+        `### 2. Température à Paris (à 6h00): *${weather}°C*\n` +
+        `### 3. Citation du jour *(via luha.alwaysdata.net)*\n  *${citation}*\n` +
+        `### 4. Info générale du jour *(via franceinfo.fr)*\n  **${item[0].title[0]}** :\n   *$${item[0].link[0]}}*\n` +
+        //+`### 5. Info sportive du jour\n  **[${items[0].title[0]}](${items[0].link[0]})** :\n   *${items[0].description[0]}*`
+        `### 6. Anime du jour\n  [${anime.title}](${anime.url})\n  *Type: ${anime.type}*  | *Score: ${anime.score}/10*  | *${anime.episodes} épisodes*  | *Diffusion le ${anime.aired.prop.from.day}/${anime.aired.prop.from.month}/${anime.aired.prop.from.year} jusqu'au ${anime.aired.prop.to.day}/${anime.aired.prop.to.month}/${anime.aired.prop.to.year}*`
+      );
     });
   } catch (error) {
     console.error("Error trying to send: ", error);
@@ -361,6 +415,8 @@ client.on("ready", async () => {
       await checkForNewVideo2();
     });
   } catch (error) { }
+
+
 
   try {
     cron.schedule("6 13 * * *", async () => {
