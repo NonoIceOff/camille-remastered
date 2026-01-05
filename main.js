@@ -165,16 +165,34 @@ async function checkForNewVideo() {
 
     // Comparer l'ID de la dernière vidéo
     if (lastVideo.id !== lastVideoId) {
+      console.log("Nouvelle vidéo détectée !");
+      console.log(lastVideo);
+      const guild = client.guilds.cache.get(guildId);
+      
       if (!lastVideo.title.includes("#shorts")) {
-        console.log("Nouvelle vidéo détectée !");
-        console.log(lastVideo);
-        const guild = client.guilds.cache.get(guildId);
-        const ytChannel = guild.channels.cache.find(
-          (channel) => channel.name === "📣╎youtube-principale"
+        // Vidéo longue -> canal gameplays
+        const ytChannel = guild?.channels.cache.find(
+          (channel) => channel.name === "gameplays"
         );
-        ytChannel.send({
-          content: `# <@&1246420184785354795>\n**NOUVELLE VIDEO**\n> [${lastVideo.title}](${lastVideo.link})`,
-        });
+        if (ytChannel) {
+          ytChannel.send({
+            content: `# <@&1246420184785354795>\n**NOUVELLE VIDEO**\n> [${lastVideo.title}](${lastVideo.link})`,
+          });
+        } else {
+          console.log("Canal gameplays introuvable");
+        }
+      } else {
+        // Short -> canal shorts
+        const ytChannel = guild?.channels.cache.find(
+          (channel) => channel.name === "shorts"
+        );
+        if (ytChannel) {
+          ytChannel.send({
+            content: `# <@&1246420184785354795>\n**NOUVEAU SHORT**\n> [${lastVideo.title}](${lastVideo.link})`,
+          });
+        } else {
+          console.log("Canal shorts introuvable");
+        }
       }
 
       // Mettre à jour le fichier avec le nouvel ID de vidéo
@@ -206,16 +224,34 @@ async function checkForNewVideo2() {
 
     // Comparer l'ID de la dernière vidéo
     if (lastVideo.id !== lastVideoId) {
+      console.log("Nouvelle vidéo détectée !");
+      console.log(lastVideo);
+      const guild = client.guilds.cache.get(guildId);
+      
       if (!lastVideo.title.includes("#shorts")) {
-        console.log("Nouvelle vidéo détectée !");
-        console.log(lastVideo);
-        const guild = client.guilds.cache.get(guildId);
-        const ytChannel = guild.channels.cache.find(
-          (channel) => channel.name === "📣╎youtube-gaming"
+        // Vidéo longue -> canal gameplays
+        const ytChannel = guild?.channels.cache.find(
+          (channel) => channel.name === "gameplays"
         );
-        ytChannel.send({
-          content: `# <@&1246420219744747612>\n**NOUVELLE VIDEO**\n> [${lastVideo.title}](${lastVideo.link})`,
-        });
+        if (ytChannel) {
+          ytChannel.send({
+            content: `# <@&1246420219744747612>\n**NOUVELLE VIDEO**\n> [${lastVideo.title}](${lastVideo.link})`,
+          });
+        } else {
+          console.log("Canal gameplays introuvable");
+        }
+      } else {
+        // Short -> canal shorts
+        const ytChannel = guild?.channels.cache.find(
+          (channel) => channel.name === "shorts"
+        );
+        if (ytChannel) {
+          ytChannel.send({
+            content: `# <@&1246420219744747612>\n**NOUVEAU SHORT**\n> [${lastVideo.title}](${lastVideo.link})`,
+          });
+        } else {
+          console.log("Canal shorts introuvable");
+        }
       }
 
       // Mettre à jour le fichier avec le nouvel ID de vidéo
@@ -285,7 +321,7 @@ client.on("ready", async () => {
     console.error(error);
   }
 
-  console.log(`Logged in as $ {client.user.tag}!`);
+  console.log(`Logged in as ${client.user.tag}!`);
   let statusText = "Meilleur bot du monde - V2";
   if (test == true) {
     statusText = "En développement...";
@@ -397,17 +433,21 @@ client.on("ready", async () => {
   button.setLabel("Trop tard pour souhaiter bienvenue");
   button.setDisabled(true);
   const guild = client.guilds.cache.get(guildId);
-  const welcomeChannel = guild.channels.cache.find(
+  const welcomeChannel = guild?.channels.cache.find(
     (channel) => channel.name === "✈╎entrees-sorties"
   );
-  welcomeChannel.messages.fetch({ limit: 100 }).then((messages) => {
-    const lastMessage = messages.find((msg) =>
-      msg.content.includes(`Bienvenue sur le serveur`)
-    );
-    if (lastMessage) {
-      lastMessage.edit({ components: [row] });
-    }
-  });
+  if (welcomeChannel) {
+    welcomeChannel.messages.fetch({ limit: 100 }).then((messages) => {
+      const lastMessage = messages.find((msg) =>
+        msg.content.includes(`Bienvenue sur le serveur`)
+      );
+      if (lastMessage) {
+        lastMessage.edit({ components: [row] });
+      }
+    }).catch(err => console.error("Erreur lors de la récupération des messages:", err));
+  } else {
+    console.log("Canal entrées-sorties introuvable");
+  }
 
   try {
     cron.schedule("0 */2 * * *", async () => {
