@@ -1,45 +1,67 @@
+// ============== IMPORTS ==============
 const {
   Client,
   GatewayIntentBits,
   REST,
   Routes,
   ActivityType,
-  Events,
+  WebhookClient,
   ButtonBuilder,
   ActionRowBuilder,
   ButtonStyle,
-  PollLayoutType,
-  PollAnswer,
-  WebhookClient,
+  EmbedBuilder,
 } = require("discord.js");
+
 const { readdirSync } = require("fs");
 const { join } = require("path");
-const { TOKEN, guildId, clientId, test } = require("./config");
-const fs = require("fs");
-const path = require("path");
-const { EmbedBuilder } = require("discord.js");
-const { scheduleDailyStatsLogging } = require("./coins_graph_saver.js");
+const fs = require("fs").promises;
+const fsSync = require("fs");
 const cron = require("node-cron");
 const axios = require("axios");
 const { parseStringPromise } = require("xml2js");
 const Parser = require("rss-parser");
-const parser = new Parser();
-const webhookClient = new WebhookClient({
-  url: "https://discord.com/api/webhooks/1268279903464456233/3_1h9RXXPiEwpL5CfCzOtQPaP1aprra-O3abTvT9YmHv40N_GL34vpjZ3IFS0jTSd7zt",
-});
-const fetch = require("node-fetch");
-
 const { GoogleGenerativeAI } = require("@google/generative-ai");
-const genAI = new GoogleGenerativeAI("AIzaSyCPwYES7iEEy6ZaCkB4Hg1a1GU9g18z4CI");
-const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
 
+// ============== CONFIG ==============
+const { TOKEN, guildId, clientId, test } = require("./config");
+const { scheduleDailyStatsLogging } = require("./coins_graph_saver.js");
 const {
   getUserInfos,
   modifyUser,
   changeUserInfos,
 } = require("./utils/user.js");
 
-const client = new Client({
+// ============== CONSTANTS ==============
+const WEBHOOK_CLIENT = new WebhookClient({
+  url: "https://discord.com/api/webhooks/1268279903464456233/3_1h9RXXPiEwpL5CfCzOtQPaP1aprra-O3abTvT9YmHv40N_GL34vpjZ3IFS0jTSd7zt",
+});
+
+const RSS_PARSER = new Parser();
+const GEMINI_API = new GoogleGenerativeAI("AIzaSyCPwYES7iEEy6ZaCkB4Hg1a1GU9g18z4CI");
+const GEMINI_MODEL = GEMINI_API.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+
+const YOUTUBE_CHANNELS = [
+  {
+    id: "UCQQSTVhlzarMRlSuTfjuMzg",
+    roleId: "1246420184785354795",
+    lastVideoFile: "./lastVideoId.txt",
+  },
+  {
+    id: "UCS-tJq0KsxaBVFEftHetrgw",
+    roleId: "1246420219744747612",
+    lastVideoFile: "./lastVideoId2.txt",
+  },
+];
+
+const VOICE_COINS_PER_MINUTE = 2;
+const VOTE_COINS = 500;
+const MESSAGE_MAX_COINS = 50;
+const COOLDOWN_SPAM_THRESHOLD = 5;
+const COOLDOWN_SPAM_TIME = 5000;
+const MUTE_DURATION = 5 * 60 * 1000;
+
+// ============== DISCORD CLIENT SETUP ==============
+const CLIENT = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMembers,
@@ -49,92 +71,75 @@ const client = new Client({
   ],
 });
 
-const voicesFolder = "./voices";
+CLIENT.commands = new Map();
+CLIENT.invites = new Map();
+CLIENT.voiceTimes = {};
+CLIENT.messageCooldowns = new Map();
+CLIENT.mutedUsers = new Set();
+CLIENT.welcomeInteractions = new Map();
 
-client.commands = new Map();
+// ============== COMMAND LOADER ==============
+function loadCommands() {
+  const commandFolders = readdirSync(join(__dirname, "commands"));
 
-const commandFolders = readdirSync(join(__dirname, "commands"));
-
-for (const folder of commandFolders) {
-  const commandsPath = join(__dirname, "commands", folder);
-  const commandFiles = readdirSync(commandsPath).filter((file) =>
-    file.endsWith(".js")
-  );
-
-  for (const file of commandFiles) {
-    const filePath = join(commandsPath, file);
-    const command = require(filePath);
-
-    if ("data" in command && "execute" in command) {
-      client.commands.set(command.data.name, command);
-    } else {
-      console.log(
-        `[WARNING] The command at ${filePath} is missing a required "data" or "execute" property.`
-      );
-    }
-  }
-}
-
-const commands = Array.from(client.commands.values(), (cmd) =>
-  cmd.data.toJSON()
-);
-
-const rest = new REST({ version: "10" }).setToken(TOKEN);
-
-(async () => {
-  try {
-    console.log(
-      `Started refreshing ${commands.length} application (/) commands.`
+  for (const folder of commandFolders) {
+    const commandsPath = join(__dirname, "commands", folder);
+    const commandFiles = readdirSync(commandsPath).filter((file) =>
+      file.endsWith(".js")
     );
 
+    for (const file of commandFiles) {
+      const filePath = join(commandsPath, file);
+      const command = require(filePath);
+
+      if ("data" in command && "execute" in command) {
+        CLIENT.commands.set(command.data.name, command);
+      } else {
+        console.error(
+          `[ERROR] Command at ${filePath} is missing "data" or "execute" property.`
+        );
+      }
+    }
+  }
+
+  console.log(`[LOADED] ${CLIENT.commands.size} commands loaded`);
+}
+
+loadCommands();
+
+// ============== COMMAND REGISTRATION ==============
+async function registerSlashCommands() {
+  try {
+    const commands = Array.from(CLIENT.commands.values(), (cmd) =>
+      cmd.data.toJSON()
+    );
+
+    const rest = new REST({ version: "10" }).setToken(TOKEN);
+
+    console.log(`[REGISTERING] ${commands.length} slash commands...`);
     const data = await rest.put(
       Routes.applicationGuildCommands(clientId, guildId),
       { body: commands }
     );
 
-    console.log(
-      `Successfully reloaded ${data.length} application (/) commands.`
-    );
+    console.log(`[SUCCESS] ${data.length} slash commands registered`);
     scheduleDailyStatsLogging();
-
-    //scheduleDailyStatsLogging();
   } catch (error) {
-    console.error(error);
+    console.error("[ERROR] Failed to register slash commands:", error);
   }
-})();
+}
 
-const cooldowns = new Map();
+registerSlashCommands();
 
-const getPoll = async () => {
-  try {
-    var date = new Date().getDate();
-    const response = await axios.get(
-      `https://zeldaapi.vercel.app/api/polls/${date}`
-    );
-    return response;
-  } catch (error) {
-    if (error.response) {
-      console.error("Erreur de la réponse de l'API:", error.response.data);
-    } else {
-      console.error("Erreur lors de la requête API:", error.message);
-    }
-  }
-};
+// ============== UTILITY FUNCTIONS ==============
 
-const formatDate = (timestamp) => {
+/**
+ * Format timestamp to French date format
+ */
+function formatDate(timestamp) {
   const months = [
-    "janvier",
-    "février",
-    "mars",
-    "avril",
-    "mai",
-    "juin",
-    "juillet",
-    "août",
-    "septembre",
-    "octobre",
-    "novembre",
-    "décembre",
+    "janvier", "février", "mars", "avril", "mai", "juin",
+    "juillet", "août", "septembre", "octobre", "novembre", "décembre",
   ];
 
   const date = new Date(timestamp);
@@ -143,435 +148,388 @@ const formatDate = (timestamp) => {
   const year = date.getFullYear();
 
   return `${day} ${month} ${year}`;
-};
+}
 
-const CHANNEL_ID = "UCQQSTVhlzarMRlSuTfjuMzg";
-const FEED_URL = `https://www.youtube.com/feeds/videos.xml?channel_id=${CHANNEL_ID}`;
-const LAST_VIDEO_FILE = "./lastVideoId.txt";
+/**
+ * Get guild and channel by name
+ */
+function getChannel(guild, channelName) {
+  return guild?.channels.cache.find((c) => c.name === channelName);
+}
 
-async function checkForNewVideo() {
+/**
+ * Fetch or read last video ID
+ */
+async function getLastVideoId(filePath) {
   try {
-    // Récupérer les données du flux RSS
-    const dataVid = await parser.parseURL(FEED_URL);
-    const lastVideo = dataVid.items[0];
-
-    // Lire le dernier ID de vidéo stocké
-    let lastVideoId = null;
-    let thumbnailURL = null;
-    if (fs.existsSync(LAST_VIDEO_FILE)) {
-      lastVideoId = fs.readFileSync(LAST_VIDEO_FILE, "utf8").trim();
-      thumbnailURL = `https://img.youtube.com/vi/${lastVideoId}/maxresdefault.jpg`;
-    }
-
-    // Comparer l'ID de la dernière vidéo
-    if (lastVideo.id !== lastVideoId) {
-      console.log("Nouvelle vidéo détectée !");
-      console.log(lastVideo);
-      const guild = client.guilds.cache.get(guildId);
-      
-      if (!lastVideo.title.includes("#shorts")) {
-        // Vidéo longue -> canal gameplays
-        const ytChannel = guild?.channels.cache.find(
-          (channel) => channel.name === "gameplays"
-        );
-        if (ytChannel) {
-          ytChannel.send({
-            content: `# <@&1246420184785354795>\n**NOUVELLE VIDEO**\n> [${lastVideo.title}](${lastVideo.link})`,
-          });
-        } else {
-          console.log("Canal gameplays introuvable");
-        }
-      } else {
-        // Short -> canal shorts
-        const ytChannel = guild?.channels.cache.find(
-          (channel) => channel.name === "shorts"
-        );
-        if (ytChannel) {
-          ytChannel.send({
-            content: `# <@&1246420184785354795>\n**NOUVEAU SHORT**\n> [${lastVideo.title}](${lastVideo.link})`,
-          });
-        } else {
-          console.log("Canal shorts introuvable");
-        }
-      }
-
-      // Mettre à jour le fichier avec le nouvel ID de vidéo
-      fs.writeFileSync(LAST_VIDEO_FILE, lastVideo.id);
-    } else {
-      console.log("Aucune nouvelle vidéo.");
+    if (fsSync.existsSync(filePath)) {
+      return fsSync.readFileSync(filePath, "utf8").trim();
     }
   } catch (error) {
-    console.error("Erreur lors de la vérification des vidéos:", error);
+    console.error(`Error reading last video file ${filePath}:`, error);
+  }
+  return null;
+}
+
+/**
+ * Save last video ID
+ */
+async function saveLastVideoId(filePath, videoId) {
+  try {
+    fsSync.writeFileSync(filePath, videoId);
+  } catch (error) {
+    console.error(`Error saving last video file ${filePath}:`, error);
   }
 }
 
-const CHANNEL_ID2 = "UCS-tJq0KsxaBVFEftHetrgw";
-const FEED_URL2 = `https://www.youtube.com/feeds/videos.xml?channel_id=${CHANNEL_ID2}`;
-const LAST_VIDEO_FILE2 = "./lastVideoId2.txt";
-async function checkForNewVideo2() {
+// ============== YOUTUBE CHECKER (CONSOLIDATED) ==============
+
+/**
+ * Generic function to check for new videos from a channel
+ */
+async function checkForNewVideos(channelConfig) {
   try {
-    // Récupérer les données du flux RSS
-    const dataVid = await parser.parseURL(FEED_URL2);
+    const feedUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${channelConfig.id}`;
+    const dataVid = await RSS_PARSER.parseURL(feedUrl);
     const lastVideo = dataVid.items[0];
 
-    // Lire le dernier ID de vidéo stocké
-    let lastVideoId = null;
-    let thumbnailURL = null;
-    if (fs.existsSync(LAST_VIDEO_FILE2)) {
-      lastVideoId = fs.readFileSync(LAST_VIDEO_FILE2, "utf8").trim();
-      thumbnailURL = `https://img.youtube.com/vi/${lastVideoId}/maxresdefault.jpg`;
+    if (!lastVideo) {
+      console.log(`[YOUTUBE] No videos found for channel ${channelConfig.id}`);
+      return;
     }
 
-    // Comparer l'ID de la dernière vidéo
-    if (lastVideo.id !== lastVideoId) {
-      console.log("Nouvelle vidéo détectée !");
-      console.log(lastVideo);
-      const guild = client.guilds.cache.get(guildId);
-      
-      if (!lastVideo.title.includes("#shorts")) {
-        // Vidéo longue -> canal gameplays
-        const ytChannel = guild?.channels.cache.find(
-          (channel) => channel.name === "gameplays"
-        );
-        if (ytChannel) {
-          ytChannel.send({
-            content: `# <@&1246420219744747612>\n**NOUVELLE VIDEO**\n> [${lastVideo.title}](${lastVideo.link})`,
-          });
-        } else {
-          console.log("Canal gameplays introuvable");
-        }
-      } else {
-        // Short -> canal shorts
-        const ytChannel = guild?.channels.cache.find(
-          (channel) => channel.name === "shorts"
-        );
-        if (ytChannel) {
-          ytChannel.send({
-            content: `# <@&1246420219744747612>\n**NOUVEAU SHORT**\n> [${lastVideo.title}](${lastVideo.link})`,
-          });
-        } else {
-          console.log("Canal shorts introuvable");
-        }
-      }
+    const lastVideoId = await getLastVideoId(channelConfig.lastVideoFile);
 
-      // Mettre à jour le fichier avec le nouvel ID de vidéo
-      fs.writeFileSync(LAST_VIDEO_FILE2, lastVideo.id);
-    } else {
-      console.log("Aucune nouvelle vidéo.");
+    if (lastVideo.id === lastVideoId) {
+      console.log(`[YOUTUBE] No new videos for channel ${channelConfig.id}`);
+      return;
     }
+
+    console.log(`[YOUTUBE] New video detected: ${lastVideo.title}`);
+
+    const guild = CLIENT.guilds.cache.get(guildId);
+    if (!guild) return;
+
+    const isShort = lastVideo.link.includes("shorts");
+    const channelName = isShort ? "shorts" : "gameplays";
+    const channel = getChannel(guild, channelName);
+
+    if (!channel) {
+      console.error(`[YOUTUBE] Channel '${channelName}' not found`);
+      return;
+    }
+
+    const mention = isShort ? "" : `# <@&${channelConfig.roleId}>\n`;
+    const title = isShort ? "NOUVEAU SHORT" : "NOUVELLE VIDEO";
+
+    await channel.send({
+      content: `${mention}**${title}**\n> [${lastVideo.title}](${lastVideo.link})`,
+    });
+
+    await saveLastVideoId(channelConfig.lastVideoFile, lastVideo.id);
   } catch (error) {
-    console.error("Erreur lors de la vérification des vidéos:", error);
+    console.error(`[YOUTUBE] Error checking videos:`, error);
   }
 }
 
-client.invites = new Map();
+// Check all YouTube channels
+async function checkAllYoutubeChannels() {
+  for (const channel of YOUTUBE_CHANNELS) {
+    await checkForNewVideos(channel);
+  }
+}
 
+// ============== POLL GENERATION ==============
+
+/**
+ * Generate a random poll using Gemini
+ */
 async function generatePoll() {
   try {
-    console.log("Génération du sondage");
-    const result = await model.generateContent(
+    console.log("[POLL] Generating new poll...");
+    const result = await GEMINI_MODEL.generateContent(
       `Génère-moi une question de culture générale avec 4 propositions de réponses, et donne le sous un format JSON sans bloc code, en mode RAW. Format comme ceci : {"question": "question", "options": ["a", "b", "c", "d"], "réponse": "2"}. Et prends pas les mêmes questions à chaque fois stp merci. Ne pas dépasser 55 caractères à chaque réponse (car sinon tu mets ...)`
     );
 
     const pollText = result.response.candidates[0].content.parts[0].text;
     const poll = JSON.parse(pollText);
 
-    var data = {
+    return {
       content: "<@&1248666677088878685>",
       poll: {
         question: { text: poll.question },
         answers: poll.options.map((option, index) => ({
           text: option,
-          emoji: ["🔴", "🟢", "🔵", "🟡"][index] || "⚪", // Emojis pour chaque option
+          emoji: ["🔴", "🟢", "🔵", "🟡"][index] || "⚪",
         })),
         allowMultiselect: false,
         duration: 12,
       }
-    }
-
-    console.log(data)
-
-    return data;
+    };
   } catch (error) {
-    console.error("Erreur lors de la génération du sondage :", error);
-    return "Erreur lors de la génération du sondage.";
+    console.error("[POLL] Error generating poll:", error);
+    return null;
   }
 }
 
-client.on("ready", async () => {
-  try {
-    console.log("ok")
+// ============== EVENTS ==============
 
-    cron.schedule("0 0 10 * * *", async () => {
-      console.log("Nouveau sondage");
-      const poll = await generatePoll();
-      const guild = client.guilds.cache.get(guildId);
-      const channel = guild.channels.cache.find(
-        (channel) => channel.name === "test-bot"
-      );
-      if (channel) {
-        console.log("Publication.")
-        console.log(poll)
-        channel.send(poll);
-      } else {
-        console.log("Salon introuvable");
-      }
-    });
-  } catch (error) {
-    console.error(error);
-  }
+/**
+ * Bot ready event
+ */
+CLIENT.on("ready", async () => {
+  console.log(`[READY] Logged in as ${CLIENT.user.tag}`);
 
-  console.log(`Logged in as ${client.user.tag}!`);
-  let statusText = "Meilleur bot du monde - V2";
-  if (test == true) {
-    statusText = "En développement...";
-  }
-  client.user.setPresence({
-    activities: [{ name: `${statusText}`, type: ActivityType.Custom }],
+  // Set bot status
+  const statusText = test ? "En développement..." : "Meilleur bot du monde - V2";
+  CLIENT.user.setPresence({
+    activities: [{ name: statusText, type: ActivityType.Custom }],
     status: "Hello world",
   });
-  await checkForNewVideo();
-  await checkForNewVideo2();
 
-  if (test == true) {
-    return;
-  }
+  // Initial checks
+  await checkAllYoutubeChannels();
 
-  try {
-    cron.schedule("0 6 * * *", async () => {
-      const response = await axios.get(
-        "https://nominis.cef.fr/json/nominis.php"
-      );
-      let name = response.data.response.prenoms.majeurs;
-      console.log(name);
-      name = Object.keys(name)[0];
-      console.log(name);
+  if (test) return;
 
-      const guild = client.guilds.cache.get(guildId);
-      const pollChannel = guild.channels.cache.find(
-        (channel) => channel.name === "éphéméride"
-      );
-      let date = Date.now();
-      let currentDate = formatDate(date);
-
-      const responsec = await axios.get("https://luha.alwaysdata.net/api/");
-      let citation = responsec.data.citation;
-
-      const responseweather = await axios.get(
-        "https://api.openweathermap.org/data/2.5/weather?q=paris&appid=97ad485b6db9822d9a93cb34073d61f3&units=metric"
-      );
-      let weather = responseweather.data.main.temp;
-
-      const responsejo = await axios.get(
-        "https://apis.codante.io/olympic-games/countries"
-      );
-      let countrys = responsejo.data.data;
-      let joid = 0;
-
-      for (let index = 0; index < 20; index++) {
-        if (countrys[index].id == "FRA") {
-          joid = index;
-        }
-      }
-
-      const responseinfos = await axios.get(
-        "https://www.francetvinfo.fr/france.rss"
-      );
-      const xmlData = responseinfos.data;
-      const parsedData = await parseStringPromise(xmlData);
-      if (
-        !parsedData ||
-        !parsedData.rss ||
-        !parsedData.rss.channel ||
-        !parsedData.rss.channel[0].item
-      ) {
-        throw new Error("Format de flux RSS invalide ou données manquantes.");
-      }
-      const item = parsedData.rss.channel[0].item.slice(0, 1);
-
-      const responsesinfos = await axios.get(
-        "https://www.francetvinfo.fr/sports.rss"
-      );
-      const xmlsData = responsesinfos.data;
-      const parsedsData = await parseStringPromise(xmlsData);
-      if (
-        !parsedsData ||
-        !parsedsData.rss ||
-        !parsedsData.rss.channel ||
-        !parsedsData.rss.channel[0].item
-      ) {
-        throw new Error("Format de flux RSS invalide ou données manquantes.");
-      }
-      const items = parsedsData.rss.channel[0].item.slice(0, 1);
-
-      const responseanime = await axios.get(
-        "https://api.jikan.moe/v4/random/anime"
-      );
-      let anime = responseanime.data.data;
-
-      await pollChannel.send(
-        `# Éphéméride du ${currentDate}\n### 1. Nous fêtons les ${name}\n` +
-        //+`### 2. Jeux Paralympiques :flag_fr:\n  **${joid + 1}° PLACE.** *:first_place:${countrys[joid].gold_medals}  :second_place:${countrys[joid].silver_medals}  :third_place:${countrys[joid].bronze_medals}* **(:medal:${countrys[joid].total_medals})**\n`
-        `### 2. Température à Paris (à 6h00): *${weather}°C*\n` +
-        `### 3. Citation du jour *(via luha.alwaysdata.net)*\n  *${citation}*\n` +
-        `### 4. Info générale du jour *(via franceinfo.fr)*\n  **${item[0].title[0]}** :\n   *$${item[0].link[0]}}*\n` +
-        //+`### 5. Info sportive du jour\n  **[${items[0].title[0]}](${items[0].link[0]})** :\n   *${items[0].description[0]}*`
-        `### 6. Anime du jour\n  [${anime.title}](${anime.url})\n  *Type: ${anime.type}*  | *Score: ${anime.score}/10*  | *${anime.episodes} épisodes*  | *Diffusion le ${anime.aired.prop.from.day}/${anime.aired.prop.from.month}/${anime.aired.prop.from.year} jusqu'au ${anime.aired.prop.to.day}/${anime.aired.prop.to.month}/${anime.aired.prop.to.year}*`
-      );
-    });
-  } catch (error) {
-    console.error("Error trying to send: ", error);
-  }
-
-  const button = new ButtonBuilder()
-    .setCustomId("welcome_button")
-    .setLabel("Souhaitez la bienvenue ! [10:00]")
-    .setStyle(ButtonStyle.Success);
-
-  const row = new ActionRowBuilder().addComponents(button);
-
-  button.setLabel("Trop tard pour souhaiter bienvenue");
-  button.setDisabled(true);
-  const guild = client.guilds.cache.get(guildId);
-  const welcomeChannel = guild?.channels.cache.find(
-    (channel) => channel.name === "✈╎entrees-sorties"
-  );
-  if (welcomeChannel) {
-    welcomeChannel.messages.fetch({ limit: 100 }).then((messages) => {
-      const lastMessage = messages.find((msg) =>
-        msg.content.includes(`Bienvenue sur le serveur`)
-      );
-      if (lastMessage) {
-        lastMessage.edit({ components: [row] });
-      }
-    }).catch(err => console.error("Erreur lors de la récupération des messages:", err));
-  } else {
-    console.log("Canal entrées-sorties introuvable");
-  }
-
-  try {
-    cron.schedule("0 */2 * * *", async () => {
-      await checkForNewVideo();
-      await checkForNewVideo2();
-    });
-  } catch (error) { }
-
-
-
-  try {
-    cron.schedule("6 13 * * *", async () => {
-      const responsepoll = await getPoll();
-      let statpoll = responsepoll.data;
-      console.log(responsepoll);
-      const guild = client.guilds.cache.get(guildId);
-      const pollChannel = guild.channels.cache.find(
-        (channel) => channel.name === "📊╎sondages"
-      );
-
-      if (pollChannel) {
-        const answers = [
-          {
-            text: statpoll.response1,
-            emoji: statpoll.emoji1,
-          },
-          {
-            text: statpoll.response2,
-            emoji: statpoll.emoji2,
-          },
-        ];
-
-        if (statpoll.response3 && statpoll.emoji3) {
-          answers.push({
-            text: statpoll.response3,
-            emoji: statpoll.emoji3,
-          });
-        }
-
-        if (statpoll.response4 && statpoll.emoji4) {
-          answers.push({
-            text: statpoll.response4,
-            emoji: statpoll.emoji4,
-          });
-        }
-
-        //pollChannel.send({
-        //  content: "<@&1248666677088878685>",
-        //  poll: {
-        //    question: { text: statpoll.question },
-        //    answers: answers,
-        //    allowMultiselect: false,
-        //    duration: 24,
-        //    layoutType: PollLayoutType.Default, // Assurez-vous que PollLayoutType est défini correctement
-        //  },
-        //});
-      } else {
-        console.error("Channel not found");
-      }
-    });
-  } catch (error) {
-    console.error("Error trying to send: ", error);
-  }
-
-  client.guilds.cache.forEach(async (guild) => {
+  // Fetch all invites for tracking
+  CLIENT.guilds.cache.forEach(async (guild) => {
     try {
       const invites = await guild.invites.fetch();
       const codeUses = new Map();
       invites.forEach((invite) => codeUses.set(invite.code, invite.uses));
-      client.invites.set(guild.id, codeUses);
+      CLIENT.invites.set(guild.id, codeUses);
     } catch (error) {
-      console.error(
-        `Erreur lors de la récupération des invitations pour ${guild.name}:`
-      );
+      console.error(`[INVITES] Error fetching invites for ${guild.name}`);
     }
   });
+
+  // Schedule tasks
+  scheduleYoutubeTasks();
+  scheduleEphemeridTask();
+  schedulePollTask();
+  scheduleWelcomeButtonReset();
 });
 
-client.on("inviteCreate", async (invite) => {
-  if (test == true) {
-    return;
+/**
+ * YouTube checks every 2 hours
+ */
+function scheduleYoutubeTasks() {
+  cron.schedule("0 */2 * * *", checkAllYoutubeChannels);
+  console.log("[SCHEDULER] YouTube checks scheduled (every 2 hours)");
+}
+
+/**
+ * Daily ephemeris at 6:00 AM
+ */
+function scheduleEphemeridTask() {
+  cron.schedule("0 6 * * *", sendEphemeris);
+  console.log("[SCHEDULER] Ephemeris scheduled (daily at 6:00)");
+}
+
+/**
+ * Daily poll at 10:00 AM
+ */
+function schedulePollTask() {
+  cron.schedule("0 10 * * *", sendDailyPoll);
+  console.log("[SCHEDULER] Daily poll scheduled (10:00)");
+}
+
+/**
+ * Reset welcome button at 10:00 AM
+ */
+function scheduleWelcomeButtonReset() {
+  cron.schedule("0 10 * * *", resetWelcomeButtons);
+  console.log("[SCHEDULER] Welcome button reset scheduled (10:00)");
+}
+
+/**
+ * Send ephemeris message
+ */
+async function sendEphemeris() {
+  try {
+    const guild = CLIENT.guilds.cache.get(guildId);
+    const channel = getChannel(guild, "éphéméride");
+    if (!channel) return;
+
+    console.log("[EPHEMERIS] Generating daily ephemeris...");
+
+    // Fetch data in parallel
+    const [nameRes, weatherRes, quoteRes, newsRes, animeRes] = await Promise.allSettled([
+      axios.get("https://nominis.cef.fr/json/nominis.php"),
+      axios.get("https://api.openweathermap.org/data/2.5/weather?q=paris&appid=97ad485b6db9822d9a93cb34073d61f3&units=metric"),
+      axios.get("https://luha.alwaysdata.net/api/"),
+      axios.get("https://www.francetvinfo.fr/france.rss"),
+      axios.get("https://api.jikan.moe/v4/random/anime"),
+    ]);
+
+    let name = "Inconnu";
+    let weather = "?";
+    let citation = "Non disponible";
+    let newsItem = null;
+    let anime = null;
+
+    if (nameRes.status === "fulfilled") {
+      const names = nameRes.value.data.response.prenoms.majeurs;
+      name = Object.keys(names)[0] || "Inconnu";
+    }
+
+    if (weatherRes.status === "fulfilled") {
+      weather = Math.round(weatherRes.value.data.main.temp);
+    }
+
+    if (quoteRes.status === "fulfilled") {
+      citation = quoteRes.value.data.citation;
+    }
+
+    if (newsRes.status === "fulfilled") {
+      const parsed = await parseStringPromise(newsRes.value.data);
+      const items = parsed?.rss?.channel?.[0]?.item;
+      if (items) {
+        newsItem = items[0];
+      }
+    }
+
+    if (animeRes.status === "fulfilled") {
+      anime = animeRes.value.data.data;
+    }
+
+    const currentDate = formatDate(Date.now());
+
+    let message = `# Éphéméride du ${currentDate}\n`;
+    message += `### 1. Nous fêtons les ${name}\n`;
+    message += `### 2. Température à Paris (6h00): *${weather}°C*\n`;
+    message += `### 3. Citation du jour\n  *${citation}*\n`;
+
+    if (newsItem) {
+      message += `### 4. Info générale du jour\n  **${newsItem.title[0]}**\n   [Lire plus](${newsItem.link[0]})\n`;
+    }
+
+    if (anime) {
+      const from = anime.aired.prop.from;
+      const to = anime.aired.prop.to;
+      message += `### 6. Anime du jour\n  [${anime.title}](${anime.url})\n  *Type: ${anime.type}* | *Score: ${anime.score}/10* | *${anime.episodes} épisodes* | *Diffusion du ${from.day}/${from.month}/${from.year} au ${to.day}/${to.month}/${to.year}*`;
+    }
+
+    await channel.send(message);
+    console.log("[EPHEMERIS] Ephemeris sent successfully");
+  } catch (error) {
+    console.error("[EPHEMERIS] Error sending ephemeris:", error);
   }
+}
+
+/**
+ * Send daily poll
+ */
+async function sendDailyPoll() {
+  try {
+    const poll = await generatePoll();
+    if (!poll) return;
+
+    const guild = CLIENT.guilds.cache.get(guildId);
+    const channel = getChannel(guild, "test-bot");
+
+    if (channel) {
+      await channel.send(poll);
+      console.log("[POLL] Daily poll sent");
+    }
+  } catch (error) {
+    console.error("[POLL] Error sending daily poll:", error);
+  }
+}
+
+/**
+ * Reset welcome button timer
+ */
+async function resetWelcomeButtons() {
+  try {
+    const guild = CLIENT.guilds.cache.get(guildId);
+    const channel = getChannel(guild, "✈╎entrees-sorties");
+
+    if (!channel) return;
+
+    const messages = await channel.messages.fetch({ limit: 100 });
+    const welcomeMessages = messages.filter((msg) =>
+      msg.content.includes("Bienvenue sur le serveur")
+    );
+
+    const button = new ButtonBuilder()
+      .setCustomId("welcome_button")
+      .setLabel("Souhaitez la bienvenue ! [10:00]")
+      .setStyle(ButtonStyle.Success);
+
+    const row = new ActionRowBuilder().addComponents(button);
+
+    for (const msg of welcomeMessages) {
+      await msg.edit({ components: [row] });
+    }
+
+    CLIENT.welcomeInteractions.clear();
+    console.log("[WELCOME] Welcome buttons reset");
+  } catch (error) {
+    console.error("[WELCOME] Error resetting buttons:", error);
+  }
+}
+
+/**
+ * New invite created
+ */
+CLIENT.on("inviteCreate", async (invite) => {
+  if (test) return;
 
   try {
     const invites = await invite.guild.invites.fetch();
     const codeUses = new Map();
     invites.forEach((inv) => codeUses.set(inv.code, inv.uses));
-    client.invites.set(invite.guild.id, codeUses);
+    CLIENT.invites.set(invite.guild.id, codeUses);
   } catch (error) {
-    console.error(
-      `Erreur lors de l'ajout d'une nouvelle invitation pour ${invite.guild.name}:`,
-      error
+    console.error(`[INVITES] Error for ${invite.guild.name}:`, error);
+  }
+});
+
+/**
+ * Guild member joined
+ */
+CLIENT.on("guildMemberAdd", async (member) => {
+  if (test) return;
+
+  console.log(`[JOIN] ${member.user.tag} joined`);
+
+  // Send welcome DM
+  try {
+    await member.send(
+      "Bienvenue sur le serveur **NONOICE COMMUNITY**\nNous t'invitons à checker les commandes de notre bot custom *Zelda* et discuter avec nos membres.\n\n*Le serveur est sponsorisé par notre chaîne Youtube Gaming, où nous aidons les personnes à se débloquer dans les jeux :* https://www.youtube.com/@LesGameplaysDeNono?sub_confirmation=1"
     );
+  } catch (error) {
+    console.error(`[JOIN] Cannot DM ${member.user.tag}`);
   }
-});
 
-client.on("messagePollVoteAdd", async (pollAnswer, voterId) => {
-  const users = await pollAnswer.fetchVoters();
-  console.log(users);
-});
-
-client.on("messagePollVoteRemove", async () => {
-  console.log("removed");
-});
-
-client.on("guildMemberAdd", async (member) => {
-  if (test == true) {
-    return;
-  }
-  const date = new Date();
-  const hour = date.getHours();
-  member.send(
-    "Bienvenue sur le serveur **NONOICE COMMUNITY**\nNous t'invitons à checker les commandes de notre bot custom *Zelda* et discuter avec nos membres.\n\n*Le serveur est sponsorisé par notre chaîne Youtube Gaming, où nous aidons les personnes à se débloquer dans les jeux :* https://www.youtube.com/@LesGameplaysDeNono?sub_confirmation=1"
-  );
-  const welcomeChannel = member.guild.channels.cache.find(
-    (channel) => channel.name === "✈╎entrees-sorties"
-  );
-
-  const tutoChannel = member.guild.channels.cache.find(
-    (channel) => channel.name === "📚╎didactitiel"
-  );
+  const guild = member.guild;
+  const welcomeChannel = getChannel(guild, "✈╎entrees-sorties");
+  const tutorialChannel = getChannel(guild, "📚╎didactitiel");
 
   if (!welcomeChannel) return;
 
+  // Get inviter
+  let inviterName = "Inconnu";
+  try {
+    const newInvites = await guild.invites.fetch();
+    const oldInvites = CLIENT.invites.get(guild.id);
+    const usedInvite = newInvites.find(
+      (i) => i.uses > (oldInvites?.get(i.code) || 0)
+    );
+
+    if (usedInvite) {
+      inviterName = usedInvite.inviter.username;
+      oldInvites.set(usedInvite.code, usedInvite.uses);
+      CLIENT.invites.set(guild.id, oldInvites);
+      console.log(`[JOIN] ${member.user.tag} invited by ${inviterName}`);
+    }
+  } catch (error) {
+    console.error(`[JOIN] Cannot fetch invites:`, error);
+  }
+
+  // Send welcome message with button
   const button = new ButtonBuilder()
     .setCustomId("welcome_button")
     .setLabel("Souhaitez la bienvenue ! [10:00]")
@@ -579,424 +537,439 @@ client.on("guildMemberAdd", async (member) => {
 
   const row = new ActionRowBuilder().addComponents(button);
 
-  let invitMessage = "";
-  try {
-    const newInvites = await member.guild.invites.fetch();
-    const oldInvites = client.invites.get(member.guild.id);
-    const invite = newInvites.find(
-      (i) => i.uses > (oldInvites.get(i.code) || 0)
-    );
-    if (invite) {
-      invitMessage = `*(Invité par ${invite.inviter})*`;
-      console.log(
-        `${member.user.tag} a rejoint en utilisant l'invitation ${invite.code} de ${invite.inviter}.`
-      );
-      oldInvites.set(invite.code, invite.uses);
-      client.invites.set(member.guild.id, oldInvites);
-    } else {
-      invitMessage = ``;
-      console.log(
-        `${member.user.tag} a rejoint, mais l'invitation utilisée n'a pas été trouvée.`
-      );
-    }
-  } catch (error) {
-    console.error(
-      `Erreur lors de la vérification des invitations pour ${member.guild.name}:`,
-      error
+  const inviteMsg = inviterName !== "Inconnu" ? `*(Invité par ${inviterName})*` : "";
+  const welcomeMessage = `<:join:1268149257832239195>   **Bienvenue sur le serveur, ${member}** :wave:\n${inviteMsg}`;
+
+  await welcomeChannel.send({ content: welcomeMessage, components: [row] });
+
+  // Send tutorial
+  if (tutorialChannel) {
+    await tutorialChannel.send(
+      `# Didactitiel 1/1 [${member}]\n*Bienvenue, ce didactitiel à pour but d'avoir tous les clés en main pour s'amuser sur le serveur.*\n- Joue au simon avec la commande /simon, dans le salon <#1158389642140332065>\n- Dis coucou aux membres dans le salon <#1158389289646829578>`
     );
   }
 
-  const welcomeMessage = `<:join:1268149257832239195>   **Bienvenue sur le serveur, ${member}** :wave:\n${invitMessage}`;
+  // Add roles
+  try {
+    await member.roles.add(["1254778700587602001", "1267894536173256714"]);
+  } catch (error) {
+    console.error(`[JOIN] Cannot add roles to ${member.user.tag}:`, error);
+  }
 
-  welcomeChannel.send({ content: welcomeMessage, components: [row] });
-
-  tutoChannel.send({
-    content: `# Didactitiel 1/1 [${member}]\n*Bienvenue, ce didactitiel à pour but d'avoir tous les clés en main pour s'amuser sur le serveur.*\n- Joue au simon avec la commande /simon, dans le salon <#1158389642140332065>\n- Dis coucou aux membres dans le salon <#1158389289646829578>`,
-  });
-
-  member.roles.add("1254778700587602001");
-  member.roles.add("1267894536173256714");
-
-  let timeLeft = 300; // 5 minutes in seconds
-
-  const interval = setInterval(() => {
+  // Setup welcome button timer (5 minutes)
+  let timeLeft = 300;
+  const buttonInterval = setInterval(async () => {
     timeLeft--;
-    const minutes = Math.floor(timeLeft / 60)
-      .toString()
-      .padStart(2, "0");
+    const minutes = Math.floor(timeLeft / 60).toString().padStart(2, "0");
     const seconds = (timeLeft % 60).toString().padStart(2, "0");
+    
     button.setLabel(`Souhaitez la bienvenue ! [${minutes}:${seconds}]`);
-
-    welcomeChannel.messages.fetch({ limit: 100 }).then((messages) => {
-      const lastMessage = messages.find((msg) =>
+    
+    try {
+      const messages = await welcomeChannel.messages.fetch({ limit: 50 });
+      const memberMessage = messages.find((msg) =>
         msg.content.includes(`**Bienvenue sur le serveur, ${member}**`)
       );
-      if (lastMessage) {
-        lastMessage.edit({ components: [row] });
+      
+      if (memberMessage) {
+        await memberMessage.edit({ components: [row] });
       }
-    });
+    } catch (error) {
+      console.error("[JOIN] Error updating button");
+    }
   }, 1000);
 
-  setTimeout(() => {
-    button.setLabel("Trop tard pour souhaiter bienvenue");
-    button.setDisabled(true);
-    clearInterval(interval);
-    welcomeChannel.messages.fetch({ limit: 100 }).then((messages) => {
-      const lastMessage = messages.find((msg) =>
+  // Disable button after 5 minutes
+  setTimeout(async () => {
+    clearInterval(buttonInterval);
+    button.setLabel("Trop tard pour souhaiter bienvenue").setDisabled(true);
+    
+    try {
+      const messages = await welcomeChannel.messages.fetch({ limit: 50 });
+      const memberMessage = messages.find((msg) =>
         msg.content.includes(`**Bienvenue sur le serveur, ${member}**`)
       );
-      if (lastMessage) {
-        lastMessage.edit({ components: [row] });
+      
+      if (memberMessage) {
+        await memberMessage.edit({ components: [row] });
       }
-    });
-  }, 300000); // 5 minutes in milliseconds
+    } catch (error) {
+      console.error("[JOIN] Error disabling button");
+    }
+  }, 300000);
 });
 
-client.on("guildMemberRemove", async (member) => {
-  if (test == true) {
-    return;
-  }
-  const date = new Date();
-  const hour = date.getHours();
-  const welcomeChannel = member.guild.channels.cache.find(
-    (channel) => channel.name === "✈╎entrees-sorties"
-  );
+/**
+ * Guild member left
+ */
+CLIENT.on("guildMemberRemove", async (member) => {
+  if (test) return;
 
+  console.log(`[LEAVE] ${member.user.tag} left`);
+
+  const welcomeChannel = getChannel(member.guild, "✈╎entrees-sorties");
   if (!welcomeChannel) return;
 
-  const welcomeMessage = `<:leave:1268149259258298380>   **Au revoir ${member.displayName}**`;
-  welcomeChannel.send({ content: welcomeMessage });
+  // Send leave message
+  const leaveMessage = `<:leave:1268149259258298380>   **Au revoir ${member.displayName}**`;
+  await welcomeChannel.send({ content: leaveMessage });
 
+  // If left during night hours, suggest coming back later
+  const hour = new Date().getHours();
   if (hour >= 0 && hour < 12) {
-    const welcomeMessage2 = `*${member}, vous avez quitté le serveur pendant une période de nuit où les membres étaient potentiellement pas là, pour une meilleure expérience nous vous demandons si vous le souhaitez de revenir pour voir ce qu'il se passe le jour.\nhttps://discord.com/invite/vjveBySWMP\nMerci beaucoup.*`;
     try {
-      await member.send({ content: welcomeMessage2 });
-    } catch (error) {
-      console.log(
-        `Impossible d'envoyer un message privé à ${member.displayName}.`
+      await member.send(
+        `*${member}, vous avez quitté le serveur pendant une période de nuit où les membres étaient potentiellement pas là, pour une meilleure expérience nous vous demandons si vous le souhaitez de revenir pour voir ce qu'il se passe le jour.\nhttps://discord.com/invite/vjveBySWMP\nMerci beaucoup.*`
       );
+    } catch (error) {
+      console.error(`[LEAVE] Cannot DM ${member.user.tag}`);
     }
   }
 
+  // Update welcome button
   try {
-    const messages = await welcomeChannel.messages.fetch({ limit: 100 });
-    const lastMessage = messages.find((msg) =>
+    const messages = await welcomeChannel.messages.fetch({ limit: 50 });
+    const memberMessage = messages.find((msg) =>
       msg.content.includes(`**Bienvenue sur le serveur, ${member}**`)
     );
 
-    if (lastMessage) {
-      const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId("welcome_button")
-          .setLabel("La personne a quitté le serveur :/")
-          .setStyle(ButtonStyle.Secondary)
-          .setDisabled(true)
-      );
-      await lastMessage.edit({ components: [row] });
+    if (memberMessage) {
+      const disabledButton = new ButtonBuilder()
+        .setCustomId("welcome_button")
+        .setLabel("La personne a quitté le serveur :/")
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(true);
+
+      const row = new ActionRowBuilder().addComponents(disabledButton);
+      await memberMessage.edit({ components: [row] });
     }
   } catch (error) {
-    console.log("Erreur lors de la modification du message:", error);
+    console.error("[LEAVE] Error updating message:", error);
   }
 });
 
-const voiceTimes = {}; // Utiliser un objet pour suivre les temps en vocal temporairement
+/**
+ * Voice state update (XP tracking)
+ */
+CLIENT.on("voiceStateUpdate", async (oldState, newState) => {
+  if (test) return;
 
-client.on("voiceStateUpdate", async (oldState, newState) => {
-  if (test == true) {
-    return;
-  }
   const userId = newState.member.id;
 
-  // Si l'utilisateur rejoint un canal vocal
+  // User joined voice channel
   if (!oldState.channelId && newState.channelId) {
-    voiceTimes[userId] = Date.now();
+    CLIENT.voiceTimes[userId] = Date.now();
+    console.log(`[VOICE] ${newState.member.user.tag} joined voice`);
   }
 
-  // Si l'utilisateur quitte un canal vocal
+  // User left voice channel
   if (oldState.channelId && !newState.channelId) {
-    if (voiceTimes[userId]) {
-      const startTime = voiceTimes[userId];
-      const endTime = Date.now();
-      const duration = (endTime - startTime) / 1000; // en secondes
+    if (CLIENT.voiceTimes[userId]) {
+      const duration = (Date.now() - CLIENT.voiceTimes[userId]) / 1000; // seconds
+      const minutesPassed = Math.floor(duration / 60);
+      const coinsToAdd = minutesPassed * VOICE_COINS_PER_MINUTE;
 
-      // Calculer les pièces et l'XP à ajouter pour chaque minute passée en vocal
-      let minutesPassed = Math.floor(duration / 60000); // Convertir la durée de millisecondes en minutes
-      let coinsToAdd = 0;
-      if (minutesPassed > 0) {
-        coinsToAdd = minutesPassed * 2;
+      if (coinsToAdd > 0) {
+        await changeUserInfos(userId, coinsToAdd, "", "", duration, 0, 0);
+        console.log(`[VOICE] ${newState.member.user.tag} earned ${coinsToAdd} coins (${minutesPassed}m)`);
       }
-      console.log(coinsToAdd, duration);
 
-      await changeUserInfos(userId, coinsToAdd, "", "", duration, 0, 0);
-
-      // Supprimer l'entrée de voiceTimes
-      delete voiceTimes[userId];
+      delete CLIENT.voiceTimes[userId];
     }
   }
 });
 
-const interactionMap = new Map();
-client.on("interactionCreate", async (interaction) => {
+/**
+ * Command and modal interactions
+ */
+CLIENT.on("interactionCreate", async (interaction) => {
+  // Welcome button
   if (interaction.customId === "welcome_button") {
-    if (!interactionMap.has(interaction.user.id)) {
-      interactionMap.set(interaction.user.id, true);
+    return handleWelcomeButton(interaction);
+  }
 
-      await webhookClient
-        .send({
-          content: `:wave:  *Bienvenue ! (de la part de ${interaction.user.globalName})*`,
-          username: interaction.user.globalName,
-          avatarURL: interaction.user.avatarURL(),
-        })
-        .then((webhook) => console.log(interaction.user))
-        .catch(console.error);
+  // Broadcast modal
+  if (interaction.customId === "broadcastModal") {
+    return handleBroadcastModal(interaction);
+  }
+
+  // Slash commands
+  if (!interaction.isCommand()) return;
+
+  const command = CLIENT.commands.get(interaction.commandName);
+  if (!command) {
+    console.error(`[CMD] Unknown command: ${interaction.commandName}`);
+    return;
+  }
+
+  try {
+    // Channel whitelist check
+    const allowedChannels = ["1158389642140332065", "1234107384654204939"];
+    if (!allowedChannels.includes(interaction.channel.id)) {
+      return await interaction.reply({
+        content: "Vous ne devez utiliser les commandes que sur <#1158389642140332065>",
+        ephemeral: true,
+      });
+    }
+
+    // Maintenance mode
+    if (test && !interaction.member.permissions.has("ADMINISTRATOR")) {
+      return await interaction.reply({
+        content: "Le bot est en maintenance",
+        ephemeral: true,
+      });
+    }
+
+    await command.execute(interaction, CLIENT);
+    console.log(`[CMD] ${interaction.user.tag} executed /${interaction.commandName}`);
+  } catch (error) {
+    console.error(`[CMD] Error executing ${interaction.commandName}:`, error);
+
+    if (!interaction.replied) {
+      await interaction.reply({
+        content: "Erreur lors de l'exécution de la commande!",
+        ephemeral: true,
+      }).catch(() => {});
+    }
+  }
+});
+
+/**
+ * Handle welcome button click
+ */
+async function handleWelcomeButton(interaction) {
+  const userId = interaction.user.id;
+
+  if (!CLIENT.welcomeInteractions.has(userId)) {
+    CLIENT.welcomeInteractions.set(userId, true);
+
+    try {
+      await WEBHOOK_CLIENT.send({
+        content: `:wave:  *Bienvenue ! (de la part de ${interaction.user.globalName})*`,
+        username: interaction.user.globalName,
+        avatarURL: interaction.user.avatarURL(),
+      });
+
       await interaction.reply({
         content: "Message de bienvenue bien envoyé !",
         ephemeral: true,
       });
-    } else {
+
+      // Auto-remove from map after 2 minutes (prevent memory leak)
+      setTimeout(() => CLIENT.welcomeInteractions.delete(userId), 2 * 60 * 1000);
+    } catch (error) {
+      console.error("[BUTTON] Error sending welcome message:", error);
       await interaction.reply({
-        content: "Vous avez déjà souhaité la bienvenue à cette personne.",
+        content: "Erreur lors de l'envoi du message",
         ephemeral: true,
-      });
-    }
-  }
-
-  if (interaction.customId === "broadcastModal") {
-    const broadcastMessage =
-      interaction.fields.getTextInputValue("broadcastMessage");
-    interaction.guild.members.cache.forEach((member) => {
-      if (!member.user.bot) {
-        member.send(`${broadcastMessage}`).catch(console.error);
-      }
-    });
-
-    await interaction.reply({ content: "Message envoyé à tous !" });
-  }
-  if (!interaction.isCommand()) return;
-
-  const command = client.commands.get(interaction.commandName);
-
-  if (!command) {
-    console.error(`No command matching ${interaction.commandName} was found.`);
-    return;
-  }
-
-  try {
-    if (
-      interaction.channel.id != "1158389642140332065" &&
-      interaction.channel.id != "1234107384654204939"
-    ) {
-      await interaction.reply({
-        content:
-          "Vous ne devez utiliser les commandes que sur <#1158389642140332065>",
-        ephemeral: true, // Make this reply ephemeral so that it doesn't clutter the channel
-      });
-    } else if (test == true) {
-      if (!interaction.member.permissions.has("ADMINISTRATOR")) {
-        await interaction.reply({
-          content: "Le bot est en maintenance",
-          ephemeral: true,
-        });
-      } else {
-        await command.execute(interaction, client);
-      }
-    } else {
-      await command.execute(interaction, client);
-    }
-  } catch (error) {
-    console.error(error);
-
-    // Check if the interaction has already been replied to avoid the InteractionAlreadyReplied error
-    if (!interaction.replied) {
-      await interaction.reply({
-        content: "There was an error while executing this command!",
-        ephemeral: true,
-      });
-    }
-  }
-});
-
-const messageCooldowns = new Map();
-const mutedUsers = new Set();
-
-client.on("messageCreate", async (message) => {
-  if (test == true) {
-    return;
-  }
-  if (
-    message.channelId === "1158389642140332065" &&
-    message.author.id != "1250105529938743409"
-  ) {
-    const regex = /le joueur (.+?) vient de voter pour le serveur/i;
-    const match = message.content.match(regex);
-
-    if (match && match[1]) {
-      if (message.author.bot == true) {
-        const pseudo = match[1].trim().toLowerCase();
-        console.log(`Pseudo extrait: ${pseudo}`);
-
-        // Notifier la personne si elle est sur le serveur
-        let member = message.guild.members.cache.find(
-          (member) => member.user.username.toLowerCase() === pseudo
-        );
-
-        if (!member) {
-          // Si le membre n'est pas trouvé dans le cache, essayer de le fetch
-          try {
-            const members = await message.guild.members.fetch({
-              query: pseudo,
-              limit: 1,
-            });
-            if (members.size > 0) {
-              member = members.first(); // Récupère le premier membre trouvé
-            }
-          } catch (err) {
-            console.error("Erreur lors de la recherche du membre:", err);
-          }
-        }
-
-        if (member) {
-          const userId = member.user.id;
-          const userAll = member.user.avatarURL;
-          console.log(userAll);
-          console.log(`ID de l'utilisateur: ${userId}`);
-
-          try {
-            changeUserInfos(userId, 500, "", "", 0, 0, 0);
-            const fetchedMessages = await message.channel.messages.fetch({
-              limit: 1,
-            });
-            const lastMessage = fetchedMessages.first();
-            if (lastMessage) {
-              await lastMessage.delete();
-              console.log("Dernier message supprimé avec succès.");
-            } else {
-              console.log("Aucun message trouvé dans le canal.");
-            }
-
-            await message.channel.send({
-              content: `<:vote:1268147864551297068>  **Vote effectué par <@${userId}>** (+500 <:gold:1261787387395047424>)`,
-            });
-          } catch (err) {
-            console.error(
-              "Erreur lors de la mise à jour des statistiques de l'utilisateur:",
-              err
-            );
-            await message.reply(
-              "Une erreur s'est produite lors de la mise à jour de vos statistiques. Veuillez réessayer plus tard."
-            );
-          }
-        } else {
-          const fetchedMessages = await message.channel.messages.fetch({
-            limit: 1,
-          });
-          const lastMessage = fetchedMessages.first();
-          if (lastMessage) {
-            await lastMessage.delete();
-            console.log("Dernier message supprimé avec succès.");
-          } else {
-            console.log("Aucun message trouvé dans le canal.");
-          }
-          const anonymousEmbed = new EmbedBuilder()
-            .setTitle("Vote Anonyme")
-            .setDescription(
-              "Une personne anonyme a voté. *(Mettez bien votre pseudo discord)*"
-            )
-            .setTimestamp();
-
-          await message.channel.send({ embeds: [anonymousEmbed] });
-        }
-      } else {
-        await message.reply("T'es un petit malin toi !");
-      }
-    }
-  }
-
-  if (!message.author || message.author.bot) return;
-
-  // Chargement des données de l'utilisateur
-  try {
-    const userId = message.author.id;
-    const response = await axios.get(
-      `https://zeldaapi.vercel.app/api/user/${userId}`
-    );
-    console.log(response.data);
-  } catch (error) {
-    if (error.response) {
-      // Le serveur a répondu avec un code de statut différent de 2xx
-      if (error.response.status === 404) {
-        console.log("Utilisateur non trouvé, créons en un nouveau");
-        createUser(message.author.id);
-      } else {
-        console.error(`Erreur lors de la requête: ${error.message}`);
-      }
-    }
-  }
-
-  // Gestion du cooldown
-  if (messageCooldowns.has(message.author.id)) {
-    const userCooldown = messageCooldowns.get(message.author.id);
-    const cooldownExpirationTime = userCooldown.lastMessageTime + 5000;
-    if (Date.now() < cooldownExpirationTime) {
-      userCooldown.messageCount++;
-      messageCooldowns.set(message.author.id, userCooldown);
-      if (userCooldown.messageCount >= 5) {
-        if (!mutedUsers.has(message.author.id)) {
-          message.member.roles.add("1234116883335348266");
-          mutedUsers.add(message.author.id);
-          message.channel.send(
-            `@${message.author.id}, vous avez été muté pendant 5 minutes pour spam.`
-          );
-          setTimeout(() => {
-            message.member.roles.remove("1234116883335348266");
-            mutedUsers.delete(message.author.id);
-          }, 5 * 60 * 1000);
-        }
-      }
-    } else {
-      messageCooldowns.delete(message.author.id);
+      }).catch(() => {});
     }
   } else {
-    messageCooldowns.set(message.author.id, {
-      messageCount: 1,
-      lastMessageTime: Date.now(),
+    await interaction.reply({
+      content: "Vous avez déjà souhaité la bienvenue à cette personne.",
+      ephemeral: true,
     });
   }
+}
 
-  // Configuration des niveaux et de l'XP
-  const maxCoins = 50;
+/**
+ * Handle broadcast modal
+ */
+async function handleBroadcastModal(interaction) {
+  const broadcastMessage = interaction.fields.getTextInputValue("broadcastMessage");
 
-  // Calcul des pièces de monnaie de base et aléatoires
+  let successCount = 0;
+  let failCount = 0;
+
+  for (const member of interaction.guild.members.cache.values()) {
+    if (!member.user.bot) {
+      try {
+        await member.send(broadcastMessage);
+        successCount++;
+      } catch (error) {
+        failCount++;
+      }
+    }
+  }
+
+  await interaction.reply({
+    content: `Message envoyé à ${successCount} utilisateurs (${failCount} échoués)`,
+    ephemeral: true,
+  });
+}
+
+/**
+ * Message handler (XP and vote detection)
+ */
+CLIENT.on("messageCreate", async (message) => {
+  if (test) return;
+  if (!message.author || message.author.bot) return;
+
+  // Ensure user exists
+  await ensureUserExists(message.author.id);
+
+  // Vote detection
+  if (message.channelId === "1158389642140332065") {
+    handleVoteMessage(message);
+  }
+
+  // Spam cooldown check
+  handleSpamCooldown(message);
+
+  // Message XP
   const baseCoins = Math.max(
     1,
     Math.floor((Math.random() * message.content.length) / 10)
   );
   const randomCoins = Math.floor(Math.random() * 10) + 1;
+  const coinsPerMessage = Math.min(baseCoins + randomCoins, MESSAGE_MAX_COINS);
 
-  // Calcul de la somme des pièces pour ce message
-  const coinsPerMessage = baseCoins + randomCoins;
-
-  // Mise à jour des pièces de monnaie
-  const userId = message.author.id;
-
-  changeUserInfos(
-    userId,
-    Math.min(coinsPerMessage, maxCoins),
+  await changeUserInfos(
+    message.author.id,
+    coinsPerMessage,
     "",
     "",
     0,
     0,
     1,
-    client
+    CLIENT
   );
-
-  //userStats.badges = userStats.badges || {};
 });
 
-const createUser = async (id) => {
+/**
+ * Handle vote message
+ */
+async function handleVoteMessage(message) {
+  const regex = /le joueur (.+?) vient de voter pour le serveur/i;
+  const match = message.content.match(regex);
+
+  if (!match || !message.author.bot) return;
+
+  const pseudo = match[1].trim().toLowerCase();
+  console.log(`[VOTE] Vote detected for pseudo: ${pseudo}`);
+
+  let member = message.guild.members.cache.find(
+    (m) => m.user.username.toLowerCase() === pseudo
+  );
+
+  // Fetch if not in cache
+  if (!member) {
+    try {
+      const members = await message.guild.members.fetch({
+        query: pseudo,
+        limit: 1,
+      });
+      if (members.size > 0) {
+        member = members.first();
+      }
+    } catch (error) {
+      console.error("[VOTE] Error fetching member:", error);
+    }
+  }
+
+  // Delete bot message and send reward message
+  try {
+    const lastMessages = await message.channel.messages.fetch({ limit: 1 });
+    const lastMsg = lastMessages.first();
+    if (lastMsg) await lastMsg.delete();
+
+    if (member) {
+      await changeUserInfos(member.user.id, VOTE_COINS, "", "", 0, 0, 0);
+      await message.channel.send({
+        content: `<:vote:1268147864551297068>  **Vote effectué par <@${member.user.id}>** (+${VOTE_COINS} <:gold:1261787387395047424>)`,
+      });
+      console.log(`[VOTE] ${member.user.tag} rewarded ${VOTE_COINS} coins`);
+    } else {
+      // Anonymous vote
+      const embed = new EmbedBuilder()
+        .setTitle("Vote Anonyme")
+        .setDescription(
+          "Une personne anonyme a voté. *(Mettez bien votre pseudo discord)*"
+        )
+        .setTimestamp();
+      await message.channel.send({ embeds: [embed] });
+      console.log("[VOTE] Anonymous vote recorded");
+    }
+  } catch (error) {
+    console.error("[VOTE] Error handling vote:", error);
+  }
+}
+
+/**
+ * Handle spam cooldown
+ */
+function handleSpamCooldown(message) {
+  const userId = message.author.id;
+  const now = Date.now();
+
+  if (CLIENT.messageCooldowns.has(userId)) {
+    const userCooldown = CLIENT.messageCooldowns.get(userId);
+    const cooldownExpirationTime = userCooldown.lastMessageTime + COOLDOWN_SPAM_TIME;
+
+    if (now < cooldownExpirationTime) {
+      userCooldown.messageCount++;
+
+      if (userCooldown.messageCount >= COOLDOWN_SPAM_THRESHOLD) {
+        if (!CLIENT.mutedUsers.has(userId)) {
+          // Apply mute role
+          message.member.roles.add("1234116883335348266").catch(() => {});
+          CLIENT.mutedUsers.add(userId);
+
+          message.channel.send(
+            `<@${userId}>, vous avez été muté pendant 5 minutes pour spam.`
+          ).catch(() => {});
+
+          // Unmute after duration
+          setTimeout(() => {
+            message.member.roles.remove("1234116883335348266").catch(() => {});
+            CLIENT.mutedUsers.delete(userId);
+          }, MUTE_DURATION);
+
+          console.log(`[SPAM] ${message.author.tag} muted for 5 minutes`);
+        }
+      }
+
+      CLIENT.messageCooldowns.set(userId, userCooldown);
+    } else {
+      // Reset cooldown
+      CLIENT.messageCooldowns.delete(userId);
+    }
+  } else {
+    CLIENT.messageCooldowns.set(userId, {
+      messageCount: 1,
+      lastMessageTime: now,
+    });
+  }
+}
+
+// ============== API HELPERS ==============
+
+/**
+ * Create or fetch user from API
+ */
+async function ensureUserExists(userId) {
+  try {
+    const response = await axios.get(
+      `https://zeldaapi.vercel.app/api/user/${userId}`
+    );
+    return response.data;
+  } catch (error) {
+    if (error.response?.status === 404) {
+      // User doesn't exist, create them
+      return await createUser(userId);
+    }
+    console.error("[API] Error fetching user:", error.message);
+    return null;
+  }
+}
+
+/**
+ * Create a new user
+ */
+async function createUser(id) {
   try {
     const response = await axios.post("https://zeldaapi.vercel.app/api/user", {
-      id: id,
+      id,
       coins: 0,
       bio: "Bio non définie",
       color: "",
@@ -1005,14 +978,14 @@ const createUser = async (id) => {
       messages: 0,
     });
 
-    console.log("Réponse de l'API:", response.data);
+    console.log(`[API] User created: ${id}`);
+    return response.data;
   } catch (error) {
-    if (error.response) {
-      console.error("Erreur de la réponse de l'API:", error.response.data);
-    } else {
-      console.error("Erreur lors de la requête API:", error.message);
-    }
+    console.error(`[API] Error creating user ${id}:`, error.message);
+    return null;
   }
-};
+}
 
-client.login(TOKEN);
+// ============== LOGIN ==============
+
+CLIENT.login(TOKEN);
