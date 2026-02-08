@@ -1,59 +1,22 @@
-# Utiliser une image Node.js officielle compatible ARM64 (version plus récente)
-FROM node:20-bookworm-slim
+# Image de base Node.js
+FROM node:20-slim
 
-# Définir le répertoire de travail
 WORKDIR /app
 
-# Installer les dépendances en plusieurs étapes pour éviter le bug runc
-RUN apt-get update
+# Copier les fichiers de dépendances
+COPY package*.json ./
 
-# Étape 1 : Outils de base
-RUN apt-get install -y --no-install-recommends \
-    wget \
-    gnupg \
-    ca-certificates
+# Installer les dépendances Node.js
+RUN npm install --production
 
-# Étape 2 : Chromium et dépendances
-RUN apt-get install -y --no-install-recommends \
-    chromium \
-    chromium-driver \
-    fonts-liberation
+# Copier le code source
+COPY . .
 
-# Étape 3 : Bibliothèques système
-RUN apt-get install -y --no-install-recommends \
-    libasound2 \
-    libatk-bridge2.0-0 \
-    libatk1.0-0 \
-    libatspi2.0-0 \
-    libcups2 \
-    libdbus-1-3 \
-    libdrm2 \
-    libgbm1
+# Créer les dossiers nécessaires
+RUN mkdir -p logs daily_claim_usage MONTHLY_USAGE
 
-# Étape 4 : GTK et X11
-RUN apt-get install -y --no-install-recommends \
-    libgtk-3-0 \
-    libnspr4 \
-    libnss3 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxfixes3 \
-    libxkbcommon0 \
-    libxrandr2 \
-    xdg-utils
-
-# Étape 5 : Outils de build pour canvas
-RUN apt-get install -y --no-install-recommends \
-    build-essential \
-    libcairo2-dev \
-    libpango1.0-dev \
-    libjpeg-dev \
-    libgif-dev \
-    librsvg2-dev
-
-# Étape 6 : FFmpeg et nettoyage
-RUN apt-get install -y --no-install-recommends ffmpeg && \
-    rm -rf /var/lib/apt/lists/*
+# Commande de démarrage
+CMD ["node", "main.js"]
 
 # Copier les fichiers package.json et package-lock.json (si présent)
 COPY package*.json ./
