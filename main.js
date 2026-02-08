@@ -30,6 +30,8 @@ const {
   modifyUser,
   changeUserInfos,
 } = require("./utils/user.js");
+const logger = require("./utils/logger");
+const ErrorHandler = require("./utils/errorHandler");
 
 // ============== CONSTANTS ==============
 const WEBHOOK_CLIENT = new WebhookClient({
@@ -81,6 +83,8 @@ CLIENT.welcomeInteractions = new Map();
 // ============== COMMAND LOADER ==============
 function loadCommands() {
   const commandFolders = readdirSync(join(__dirname, "commands"));
+  let loadedCount = 0;
+  let errorCount = 0;
 
   for (const folder of commandFolders) {
     const commandsPath = join(__dirname, "commands", folder);
@@ -90,19 +94,26 @@ function loadCommands() {
 
     for (const file of commandFiles) {
       const filePath = join(commandsPath, file);
-      const command = require(filePath);
+      
+      try {
+        const command = require(filePath);
 
-      if ("data" in command && "execute" in command) {
-        CLIENT.commands.set(command.data.name, command);
-      } else {
-        console.error(
-          `[ERROR] Command at ${filePath} is missing "data" or "execute" property.`
-        );
+        if ("data" in command && "execute" in command) {
+          CLIENT.commands.set(command.data.name, command);
+          loadedCount++;
+          logger.debug('COMMANDS', `Loaded command: ${command.data.name}`);
+        } else {
+          errorCount++;
+          logger.error('COMMANDS', `Command at ${filePath} is missing "data" or "execute" property.`);
+        }
+      } catch (error) {
+        errorCount++;
+        logger.error('COMMANDS', `Error loading command ${file}:`, error);
       }
     }
   }
 
-  console.log(`[LOADED] ${CLIENT.commands.size} commands loaded`);
+  logger.success('COMMANDS', `${loadedCount} commands loaded successfully${errorCount > 0 ? ` (${errorCount} errors)` : ''}`);
 }
 
 loadCommands();
@@ -116,16 +127,17 @@ async function registerSlashCommands() {
 
     const rest = new REST({ version: "10" }).setToken(TOKEN);
 
-    console.log(`[REGISTERING] ${commands.length} slash commands...`);
+    logger.info('COMMANDS', `Registering ${commands.length} slash commands...`);
+    
     const data = await rest.put(
       Routes.applicationGuildCommands(clientId, guildId),
       { body: commands }
     );
 
-    console.log(`[SUCCESS] ${data.length} slash commands registered`);
+    logger.success('COMMANDS', `${data.length} slash commands registered successfully`);
     scheduleDailyStatsLogging();
   } catch (error) {
-    console.error("[ERROR] Failed to register slash commands:", error);
+    logger.error('COMMANDS', 'Failed to register slash commands:', error);
   }
 }
 
@@ -194,18 +206,18 @@ async function checkForNewVideos(channelConfig) {
     const lastVideo = dataVid.items[0];
 
     if (!lastVideo) {
-      console.log(`[YOUTUBE] No videos found for channel ${channelConfig.id}`);
+      logger.debug('YOUTUBE', `No videos found for channel ${channelConfig.id}`);
       return;
     }
 
     const lastVideoId = await getLastVideoId(channelConfig.lastVideoFile);
 
     if (lastVideo.id === lastVideoId) {
-      console.log(`[YOUTUBE] No new videos for channel ${channelConfig.id}`);
+      logger.debug('YOUTUBE', `No new videos for channel ${channelConfig.id}`);
       return;
     }
 
-    console.log(`[YOUTUBE] New video detected: ${lastVideo.title}`);
+    logger.info('YOUTUBE', `New video detected: ${lastVideo.title}`);
 
     const guild = CLIENT.guilds.cache.get(guildId);
     if (!guild) return;
@@ -215,7 +227,7 @@ async function checkForNewVideos(channelConfig) {
     const channel = getChannel(guild, channelName);
 
     if (!channel) {
-      console.error(`[YOUTUBE] Channel '${channelName}' not found`);
+      logger.error('YOUTUBE', `Channel '${channelName}' not found`);
       return;
     }
 
@@ -227,8 +239,9 @@ async function checkForNewVideos(channelConfig) {
     });
 
     await saveLastVideoId(channelConfig.lastVideoFile, lastVideo.id);
+    logger.success('YOUTUBE', `Notification sent for: ${lastVideo.title}`);
   } catch (error) {
-    console.error(`[YOUTUBE] Error checking videos:`, error);
+    logger.error('YOUTUBE', 'Error checking videos:', error);
   }
 }
 
@@ -246,13 +259,15 @@ async function checkAllYoutubeChannels() {
  */
 async function generatePoll() {
   try {
-    console.log("[POLL] Generating new poll...");
+    logger.info('POLL', 'Generating new poll with AI...');
     const result = await GEMINI_MODEL.generateContent(
       `Génère-moi une question de culture générale avec 4 propositions de réponses, et donne le sous un format JSON sans bloc code, en mode RAW. Format comme ceci : {"question": "question", "options": ["a", "b", "c", "d"], "réponse": "2"}. Et prends pas les mêmes questions à chaque fois stp merci. Ne pas dépasser 55 caractères à chaque réponse (car sinon tu mets ...)`
     );
 
     const pollText = result.response.candidates[0].content.parts[0].text;
     const poll = JSON.parse(pollText);
+
+    logger.success('POLL', `Poll generated: ${poll.question}`);
 
     return {
       content: "<@&1248666677088878685>",
@@ -267,7 +282,7 @@ async function generatePoll() {
       }
     };
   } catch (error) {
-    console.error("[POLL] Error generating poll:", error);
+    logger.error('POLL', 'Error generating poll:', error);
     return null;
   }
 }
@@ -278,7 +293,7 @@ async function generatePoll() {
  * Bot ready event
  */
 CLIENT.on("ready", async () => {
-  console.log(`[READY] Logged in as ${CLIENT.user.tag}`);
+  logger.success('CLIENT', `Bot logged in as ${CLIENT.user.tag}`);
 
   // Set bot status
   const statusText = test ? "En développement..." : "Meilleur bot du monde - V2";
@@ -287,10 +302,16 @@ CLIENT.on("ready", async () => {
     status: "Hello world",
   });
 
+  logger.info('CLIENT', `Bot is now online and ready!`);
+  logger.info('CLIENT', `Serving ${CLIENT.guilds.cache.size} guild(s) with ${CLIENT.users.cache.size} users`);
+
   // Initial checks
   await checkAllYoutubeChannels();
 
-  if (test) return;
+  if (test) {
+    logger.warn('CLIENT', 'Bot is running in TEST mode');
+    return;
+  }
 
   // Fetch all invites for tracking
   CLIENT.guilds.cache.forEach(async (guild) => {
@@ -299,8 +320,9 @@ CLIENT.on("ready", async () => {
       const codeUses = new Map();
       invites.forEach((invite) => codeUses.set(invite.code, invite.uses));
       CLIENT.invites.set(guild.id, codeUses);
+      logger.debug('INVITES', `Cached invites for guild: ${guild.name}`);
     } catch (error) {
-      console.error(`[INVITES] Error fetching invites for ${guild.name}`);
+      logger.error('INVITES', `Error fetching invites for ${guild.name}`, error);
     }
   });
 
@@ -309,22 +331,15 @@ CLIENT.on("ready", async () => {
   scheduleEphemeridTask();
   schedulePollTask();
   scheduleWelcomeButtonReset();
+  logger.success('SCHEDULER', 'YouTube checks scheduled (every 2 hours)');
 });
-
-/**
- * YouTube checks every 2 hours
- */
-function scheduleYoutubeTasks() {
-  cron.schedule("0 */2 * * *", checkAllYoutubeChannels);
-  console.log("[SCHEDULER] YouTube checks scheduled (every 2 hours)");
-}
 
 /**
  * Daily ephemeris at 6:00 AM
  */
 function scheduleEphemeridTask() {
   cron.schedule("0 6 * * *", sendEphemeris);
-  console.log("[SCHEDULER] Ephemeris scheduled (daily at 6:00)");
+  logger.success('SCHEDULER', 'Ephemeris scheduled (daily at 6:00 AM)');
 }
 
 /**
@@ -332,7 +347,7 @@ function scheduleEphemeridTask() {
  */
 function schedulePollTask() {
   cron.schedule("0 10 * * *", sendDailyPoll);
-  console.log("[SCHEDULER] Daily poll scheduled (10:00)");
+  logger.success('SCHEDULER', 'Daily poll scheduled (10:00 AM)');
 }
 
 /**
@@ -340,7 +355,7 @@ function schedulePollTask() {
  */
 function scheduleWelcomeButtonReset() {
   cron.schedule("0 10 * * *", resetWelcomeButtons);
-  console.log("[SCHEDULER] Welcome button reset scheduled (10:00)");
+  logger.success('SCHEDULER', 'Welcome button reset scheduled (10:00 AM)');
 }
 
 /**
@@ -697,8 +712,10 @@ CLIENT.on("interactionCreate", async (interaction) => {
   if (!interaction.isCommand()) return;
 
   const command = CLIENT.commands.get(interaction.commandName);
+  
   if (!command) {
-    console.error(`[CMD] Unknown command: ${interaction.commandName}`);
+    logger.warn('INTERACTION', `Unknown command: ${interaction.commandName}`);
+    await ErrorHandler.handleCommandNotFound(interaction);
     return;
   }
 
@@ -713,24 +730,20 @@ CLIENT.on("interactionCreate", async (interaction) => {
     }
 
     // Maintenance mode
-    if (test && !interaction.member.permissions.has("ADMINISTRATOR")) {
+    if (test && !interaction.member.permissions.has("Administrator")) {
       return await interaction.reply({
-        content: "Le bot est en maintenance",
+        content: "⚠️ Le bot est actuellement en maintenance. Veuillez réessayer plus tard.",
         ephemeral: true,
       });
     }
 
+    // Execute command
     await command.execute(interaction, CLIENT);
-    console.log(`[CMD] ${interaction.user.tag} executed /${interaction.commandName}`);
+    logger.command(interaction.user.id, interaction.commandName);
+    
   } catch (error) {
-    console.error(`[CMD] Error executing ${interaction.commandName}:`, error);
-
-    if (!interaction.replied) {
-      await interaction.reply({
-        content: "Erreur lors de l'exécution de la commande!",
-        ephemeral: true,
-      }).catch(() => {});
-    }
+    logger.error('INTERACTION', `Error executing ${interaction.commandName}:`, error);
+    await ErrorHandler.handleInteractionError(interaction, error);
   }
 });
 

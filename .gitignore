@@ -19,10 +19,13 @@ inventory/
 stats/
 daily_usage/
 ./config.js
-
+.idea/
+*.md
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
 
+.env.example
+.env
 # Mono auto generated files
 mono_crash.*
 

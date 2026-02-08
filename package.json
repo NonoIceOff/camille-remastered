@@ -4,6 +4,7 @@
     "@google/generative-ai": "^0.21.0",
     "@napi-rs/canvas": "^0.1.53",
     "axios": "^1.7.2",
+    "cheerio": "^1.2.0",
     "crypto": "^1.0.1",
     "discord.js": "^14.15.3",
     "ffmpeg-static": "^5.2.0",
@@ -15,6 +16,7 @@
     "node-cron": "^3.0.3",
     "path": "^0.12.7",
     "pg": "^8.12.0",
+    "puppeteer-core": "^24.36.1",
     "rss-parser": "^3.13.0",
     "striptags": "^3.2.0",
     "xml2js": "^0.6.2"
