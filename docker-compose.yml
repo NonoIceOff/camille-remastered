@@ -1,12 +1,10 @@
+version: '3.8'
 
 services:
   camille-bot:
     build:
       context: .
       dockerfile: Dockerfile
-      # Désactiver BuildKit pour éviter le bug runc sur Raspberry Pi 5
-      x-bake:
-        no-cache: false
     container_name: camille-discord-bot
     restart: unless-stopped
 
@@ -27,22 +25,25 @@ services:
       - ./lastVideoId.txt:/app/lastVideoId.txt
       - ./lastVideoId2.txt:/app/lastVideoId2.txt
 
-    # Limites de ressources (ajustées pour Raspberry Pi 5)
+    # Limites de ressources adaptées au Raspberry Pi 5
     deploy:
       resources:
         limits:
-          cpus: '2.0'
-          memory: 2G
+          cpus: '3.0'
+          memory: 3G
         reservations:
-          cpus: '0.5'
-          memory: 512M
+          cpus: '1.0'
+          memory: 1G
 
-    # Politique de redémarrage
+    # Health check
     healthcheck:
-      test: ["CMD-SHELL", "pgrep node || exit 1"]
+      test: ["CMD-SHELL", "pgrep -f 'node main.js' || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
 
-
+    # Capabilities pour Puppeteer/Chromium
+    cap_add:
+      - SYS_ADMIN
+    shm_size: '2gb'
