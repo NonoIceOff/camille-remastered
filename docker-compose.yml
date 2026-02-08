@@ -1,10 +1,12 @@
-version: '3.8'
 
 services:
   camille-bot:
     build:
       context: .
       dockerfile: Dockerfile
+      # Désactiver BuildKit pour éviter le bug runc sur Raspberry Pi 5
+      x-bake:
+        no-cache: false
     container_name: camille-discord-bot
     restart: unless-stopped
 
@@ -15,6 +17,7 @@ services:
       - DISCORD_TOKEN=${DISCORD_TOKEN}
       - GUILD_ID=${GUILD_ID}
       - CLIENT_ID=${CLIENT_ID}
+      - DOCKER_BUILDKIT=0
 
     # Volumes pour persister les données
     volumes:

@@ -43,8 +43,9 @@ RUN apt-get update && apt-get install -y \
 # Copier les fichiers package.json et package-lock.json (si présent)
 COPY package*.json ./
 
-# Installer les dépendances Node.js
-RUN npm install --production
+# Installer les dépendances Node.js avec legacy peer deps
+RUN npm config set legacy-peer-deps true && \
+    npm install --production --no-optional
 
 # Copier le reste des fichiers de l'application
 COPY . .
