@@ -1,0 +1,15 @@
+# Ignorer les fichiers inutiles lors de la construction Docker
+node_modules
+npm-debug.log
+logs/*.log
+.git
+.gitignore
+README.md
+.env
+.env.local
+*.md
+Dockerfile
+docker-compose.yml
+.dockerignore
+stats.zip
+
