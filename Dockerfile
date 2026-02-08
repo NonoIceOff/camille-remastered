@@ -1,17 +1,26 @@
-# Utiliser une image Node.js officielle compatible ARM64
-FROM node:20-bullseye-slim
+# Utiliser une image Node.js officielle compatible ARM64 (version plus récente)
+FROM node:20-bookworm-slim
 
 # Définir le répertoire de travail
 WORKDIR /app
 
-# Installer les dépendances système nécessaires pour Puppeteer et canvas
-RUN apt-get update && apt-get install -y \
+# Installer les dépendances en plusieurs étapes pour éviter le bug runc
+RUN apt-get update
+
+# Étape 1 : Outils de base
+RUN apt-get install -y --no-install-recommends \
     wget \
     gnupg \
-    ca-certificates \
+    ca-certificates
+
+# Étape 2 : Chromium et dépendances
+RUN apt-get install -y --no-install-recommends \
     chromium \
     chromium-driver \
-    fonts-liberation \
+    fonts-liberation
+
+# Étape 3 : Bibliothèques système
+RUN apt-get install -y --no-install-recommends \
     libasound2 \
     libatk-bridge2.0-0 \
     libatk1.0-0 \
@@ -19,7 +28,10 @@ RUN apt-get update && apt-get install -y \
     libcups2 \
     libdbus-1-3 \
     libdrm2 \
-    libgbm1 \
+    libgbm1
+
+# Étape 4 : GTK et X11
+RUN apt-get install -y --no-install-recommends \
     libgtk-3-0 \
     libnspr4 \
     libnss3 \
@@ -28,17 +40,20 @@ RUN apt-get update && apt-get install -y \
     libxfixes3 \
     libxkbcommon0 \
     libxrandr2 \
-    xdg-utils \
-    libu2f-udev \
-    libvulkan1 \
+    xdg-utils
+
+# Étape 5 : Outils de build pour canvas
+RUN apt-get install -y --no-install-recommends \
     build-essential \
     libcairo2-dev \
     libpango1.0-dev \
     libjpeg-dev \
     libgif-dev \
-    librsvg2-dev \
-    ffmpeg \
-    && rm -rf /var/lib/apt/lists/*
+    librsvg2-dev
+
+# Étape 6 : FFmpeg et nettoyage
+RUN apt-get install -y --no-install-recommends ffmpeg && \
+    rm -rf /var/lib/apt/lists/*
 
 # Copier les fichiers package.json et package-lock.json (si présent)
 COPY package*.json ./
