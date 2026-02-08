@@ -18,32 +18,70 @@ const countryFlags = {
 };
 
 /**
- * Find Chrome executable path
+ * Find browser executable path (Chrome, Chromium, Firefox, etc.)
  */
-function findChromePath() {
-  const paths = [
+function findBrowserPath() {
+  const fs = require('fs');
+
+  const chromePaths = [
+    // Windows Chrome/Chromium paths
     'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
     'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
     process.env.LOCALAPPDATA + '\\Google\\Chrome\\Application\\chrome.exe',
     'C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe',
     'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
-    'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe'
+    'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
+    // Linux Chrome/Chromium paths
+    '/usr/bin/google-chrome',
+    '/usr/bin/google-chrome-stable',
+    '/usr/bin/chromium',
+    '/usr/bin/chromium-browser',
+    '/snap/bin/chromium',
+    '/usr/bin/brave-browser',
+    '/usr/bin/microsoft-edge',
+    '/opt/google/chrome/chrome',
+    '/opt/google/chrome/google-chrome'
   ];
 
-  const fs = require('fs');
-  for (const path of paths) {
+  const firefoxPaths = [
+    // Windows Firefox paths
+    'C:\\Program Files\\Mozilla Firefox\\firefox.exe',
+    'C:\\Program Files (x86)\\Mozilla Firefox\\firefox.exe',
+    process.env.LOCALAPPDATA + '\\Mozilla Firefox\\firefox.exe',
+    // Linux Firefox paths
+    '/usr/bin/firefox',
+    '/usr/bin/firefox-esr',
+    '/snap/bin/firefox',
+    '/usr/lib/firefox/firefox',
+    '/opt/firefox/firefox'
+  ];
+
+  // Essayer Chrome d'abord
+  for (const path of chromePaths) {
     try {
       if (fs.existsSync(path)) {
-        console.log(`   Chrome trouvé: ${path}`);
-        return path;
+        console.log(`   ✅ Navigateur trouvé: ${path}`);
+        return { path, product: 'chrome' };
       }
     } catch (e) {
       // Continue
     }
   }
 
-  console.log('   ⚠️  Chrome non trouvé aux emplacements standards');
-  return paths[0]; // Fallback au chemin par défaut
+  // Essayer Firefox ensuite
+  for (const path of firefoxPaths) {
+    try {
+      if (fs.existsSync(path)) {
+        console.log(`   ✅ Firefox trouvé: ${path}`);
+        return { path, product: 'firefox' };
+      }
+    } catch (e) {
+      // Continue
+    }
+  }
+
+  console.log('   ⚠️  Aucun navigateur trouvé aux emplacements standards');
+  return { path: chromePaths[0], product: 'chrome' }; // Fallback
 }
 
 /**
@@ -56,12 +94,12 @@ async function scrapeMedalData() {
 
     console.log(`🔍 Lancement du scraping: ${url}`);
 
-    const chromePath = findChromePath();
+    const browserInfo = findBrowserPath();
 
-    // Lancer Puppeteer
-    browser = await puppeteer.launch({
+    // Configuration selon le navigateur
+    const launchOptions = {
       headless: true,
-      executablePath: chromePath,
+      executablePath: browserInfo.path,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
@@ -69,7 +107,15 @@ async function scrapeMedalData() {
         '--disable-accelerated-2d-canvas',
         '--disable-gpu'
       ]
-    });
+    };
+
+    // Firefox nécessite le produit 'firefox'
+    if (browserInfo.product === 'firefox') {
+      launchOptions.product = 'firefox';
+    }
+
+    // Lancer Puppeteer
+    browser = await puppeteer.launch(launchOptions);
 
     const page = await browser.newPage();
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
