@@ -85,14 +85,14 @@ function findBrowserPath() {
 }
 
 /**
- * Scrape medal data from L'Équipe using Puppeteer
+ * Scrape medal data from L'Équipe using Puppeteer with retry mechanism
  */
-async function scrapeMedalData() {
+async function scrapeMedalData(retryCount = 0, maxRetries = 2) {
   let browser;
   try {
     const url = "https://www.lequipe.fr/jeux-olympiques-hiver/page-tableau-des-medailles/par-pays";
 
-    console.log(`🔍 Lancement du scraping: ${url}`);
+    console.log(`🔍 Lancement du scraping: ${url}${retryCount > 0 ? ` (Tentative ${retryCount + 1}/${maxRetries + 1})` : ''}`);
 
     const browserInfo = findBrowserPath();
 
@@ -105,8 +105,26 @@ async function scrapeMedalData() {
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
         '--disable-accelerated-2d-canvas',
-        '--disable-gpu'
-      ]
+        '--disable-gpu',
+        '--disable-software-rasterizer',
+        '--disable-extensions',
+        '--disable-background-networking',
+        '--disable-default-apps',
+        '--disable-sync',
+        '--disable-translate',
+        '--hide-scrollbars',
+        '--metrics-recording-only',
+        '--mute-audio',
+        '--no-first-run',
+        '--safebrowsing-disable-auto-update',
+        '--ignore-certificate-errors',
+        '--ignore-ssl-errors',
+        '--ignore-certificate-errors-spki-list',
+        '--disable-features=IsolateOrigins,site-per-process'
+      ],
+      ignoreHTTPSErrors: true,
+      dumpio: false,
+      timeout: 60000
     };
 
     // Firefox nécessite le produit 'firefox'
@@ -114,23 +132,35 @@ async function scrapeMedalData() {
       launchOptions.product = 'firefox';
     }
 
-    // Lancer Puppeteer
+    console.log('🚀 Lancement du navigateur...');
+    // Lancer Puppeteer avec gestion d'erreur améliorée
     browser = await puppeteer.launch(launchOptions);
 
     const page = await browser.newPage();
+
+    // Configurer la page
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+    await page.setViewport({ width: 1920, height: 1080 });
+
+    // Augmenter les timeouts par défaut
+    page.setDefaultTimeout(60000);
+    page.setDefaultNavigationTimeout(60000);
 
     console.log('📄 Chargement de la page...');
+
+    // Utiliser une stratégie de chargement plus permissive
     await page.goto(url, {
-      waitUntil: 'networkidle2',
-      timeout: 30000
+      waitUntil: 'domcontentloaded',
+      timeout: 60000
     });
 
     console.log('⏳ Attente du tableau des médailles...');
-    await page.waitForSelector('table.Table--medal', { timeout: 20000 });
+
+    // Attendre que le tableau soit chargé
+    await page.waitForSelector('table.Table--medal', { timeout: 30000 });
 
     // Attendre que les données soient chargées
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    await new Promise(resolve => setTimeout(resolve, 3000));
 
     console.log('📊 Extraction des données...');
 
@@ -194,15 +224,31 @@ async function scrapeMedalData() {
 
   } catch (error) {
     console.error("❌ Erreur lors du scraping:", error.message);
+    console.error("Code d'erreur:", error.code);
     console.error("Stack trace:", error.stack);
+
     if (browser) {
       try {
         await browser.close();
+        console.log("🔒 Navigateur fermé proprement");
       } catch (closeError) {
-        console.error("Erreur lors de la fermeture du navigateur:", closeError.message);
+        console.error("⚠️ Erreur lors de la fermeture du navigateur:", closeError.message);
       }
     }
-    throw error;
+
+    // Retry en cas d'erreur de connexion
+    if ((error.code === 'ECONNRESET' || error.message.includes('socket hang up')) && retryCount < maxRetries) {
+      console.log(`🔄 Nouvelle tentative dans 2 secondes...`);
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      return scrapeMedalData(retryCount + 1, maxRetries);
+    }
+
+    // Retourner une erreur plus descriptive
+    const errorMessage = error.code === 'ECONNRESET'
+      ? 'Connexion interrompue avec le navigateur après plusieurs tentatives. Le service est peut-être temporairement indisponible.'
+      : error.message;
+
+    throw new Error(errorMessage);
   }
 }
 
