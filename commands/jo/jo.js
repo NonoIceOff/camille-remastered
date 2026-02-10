@@ -272,58 +272,59 @@ module.exports = {
         return interaction.editReply({ embeds: [embed] });
       }
 
-      // Affichage du classement complet (TOUS les pays)
+      // Affichage du classement TOP 10 + France si hors top 10
       let classement = "";
 
-      // Discord a une limite de 4096 caractères pour la description d'un embed
-      // On va créer plusieurs embeds si nécessaire
-      const embeds = [];
-      let currentClassement = "";
+      // Limiter au top 10
+      const top10 = medalsData.slice(0, 10);
 
-      medalsData.forEach((country, index) => {
-        const medal = index === 0 ? "🥇" : index === 1 ? "🥈" : index === 2 ? "🥉" : `**${index + 1}.**`;
-        const line = `${medal} ${country.country}\n   🥇 ${country.gold}  🥈 ${country.silver}  🥉 ${country.bronze}  📊 **${country.total}**\n\n`;
+      // Vérifier si la France est dans le top 10
+      const franceIndex = medalsData.findIndex(c =>
+        c.country.includes("France") || c.country.includes("🇫🇷")
+      );
 
-        // Si ajouter cette ligne dépasse 4000 caractères, créer un nouvel embed
-        if ((currentClassement + line).length > 4000) {
-          const embed = new EmbedBuilder()
-            .setTitle(embeds.length === 0 ? "🏅 Tableau des Médailles - JO 2026" : "🏅 Tableau des Médailles - JO 2026 (suite)")
-            .setColor("#FFD700")
-            .setDescription(currentClassement);
+      let countriesDisplay = [...top10];
 
-          if (embeds.length === 0) {
-            embed.setThumbnail("https://upload.wikimedia.org/wikipedia/en/thumb/9/9d/2026_Winter_Olympics_logo.svg/1200px-2026_Winter_Olympics_logo.svg.png");
-          }
-
-          embeds.push(embed);
-          currentClassement = line;
-        } else {
-          currentClassement += line;
-        }
-      });
-
-      // Ajouter le dernier embed
-      if (currentClassement.length > 0) {
-        const embed = new EmbedBuilder()
-          .setTitle(embeds.length === 0 ? "🏅 Tableau des Médailles - JO 2026" : "🏅 Tableau des Médailles - JO 2026 (suite)")
-          .setColor("#FFD700")
-          .setDescription(currentClassement)
-          .setFooter({ text: `Jeux Olympiques d'hiver 2026 - Milano Cortina 🇮🇹 | ${medalsData.length} pays` })
-          .setTimestamp();
-
-        if (embeds.length === 0) {
-          embed.setThumbnail("https://upload.wikimedia.org/wikipedia/en/thumb/9/9d/2026_Winter_Olympics_logo.svg/1200px-2026_Winter_Olympics_logo.svg.png");
-          embed.addFields({
-            name: "💡 Astuce",
-            value: "Utilisez `/jo pays:<nom_du_pays>` pour voir les détails d'un pays spécifique",
-            inline: false
-          });
-        }
-
-        embeds.push(embed);
+      // Si la France n'est pas dans le top 10, l'ajouter à la fin
+      if (franceIndex >= 10) {
+        countriesDisplay.push(medalsData[franceIndex]);
       }
 
-      await interaction.editReply({ embeds: embeds });
+      countriesDisplay.forEach((country, displayIndex) => {
+        // Trouver l'index réel du pays dans le classement complet
+        const realIndex = medalsData.indexOf(country);
+        const position = realIndex + 1;
+
+        let medal;
+        if (realIndex === 0) medal = "🥇";
+        else if (realIndex === 1) medal = "🥈";
+        else if (realIndex === 2) medal = "🥉";
+        else medal = `**${position}.**`;
+
+        const line = `${medal} ${country.country}\n   🥇 ${country.gold}  🥈 ${country.silver}  🥉 ${country.bronze}  📊 **${country.total}**\n\n`;
+
+        // Ajouter un séparateur avant la France si elle est hors top 10
+        if (displayIndex === 10 && franceIndex >= 10) {
+          classement += "━━━━━━━━━━━━━━━━━━━━━━\n\n";
+        }
+
+        classement += line;
+      });
+
+      const embed = new EmbedBuilder()
+        .setTitle("🏅 Tableau des Médailles - JO 2026")
+        .setColor("#FFD700")
+        .setDescription(classement)
+        .setThumbnail("https://upload.wikimedia.org/wikipedia/en/thumb/9/9d/2026_Winter_Olympics_logo.svg/1200px-2026_Winter_Olympics_logo.svg.png")
+        .addFields({
+          name: "💡 Astuce",
+          value: "Utilisez `/jo pays:<nom_du_pays>` pour voir les détails d'un pays spécifique",
+          inline: false
+        })
+        .setFooter({ text: `Jeux Olympiques d'hiver 2026 - Milano Cortina 🇮🇹 | ${medalsData.length} pays` })
+        .setTimestamp();
+
+      await interaction.editReply({ embeds: [embed] });
 
     } catch (error) {
       console.error("Erreur lors de la récupération des données des JO:", error);
